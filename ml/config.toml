@@ -1,0 +1,14 @@
+[target]
+geography = "Kaliningrad Oblast <-> mainland Russia"
+unit = "tonnes"
+preferred_granularity = "month"
+last_historical_year = 2026
+forecast_end_year = 2030
+
+[evaluation]
+strategy = "rolling_origin"
+baseline = "seasonal_naive_or_last_value"
+metrics = ["MAE", "WAPE"]
+report_post_2022_separately = true
+
+# Параметры обучения утверждаются после выбора проверенного целевого ряда.

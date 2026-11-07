@@ -1,0 +1,9 @@
+[observations]
+format = "csv"
+encoding = "utf-8-sig"
+canonical_mass_unit = "tonnes"
+required_columns = ["period", "period_granularity", "origin", "destination", "direction", "mode", "cargo_group", "value_tonnes", "status", "source_id"]
+
+[quality]
+missing_tokens = ["", "CD", "ND", "-77777777", "-99999999"]
+allow_negative_mass = false
