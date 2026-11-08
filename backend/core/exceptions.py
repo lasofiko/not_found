@@ -21,7 +21,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
         details = [
-            {"field": ".".join(str(part) for part in item["loc"]), "message": item["msg"]} for item in exc.errors()
+            {"field": ".".join(str(part) for part in item["loc"]), "message": item["msg"].removeprefix("Value error, ")}
+            for item in exc.errors()
         ]
         return error_response(422, "VALIDATION_ERROR", "Некорректные параметры запроса", details)
 

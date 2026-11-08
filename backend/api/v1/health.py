@@ -10,7 +10,7 @@ router = APIRouter(tags=["Infrastructure"])
 
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
-    service: Literal["baltic-balance-backend"] = "baltic-balance-backend"
+    service: Literal["not-found-backend"] = "not-found-backend"
     api_version: Literal["v1"] = "v1"
 
 
