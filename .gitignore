@@ -1,6 +1,7 @@
 .idea/
 .venv/
 __pycache__/
+.ipynb_checkpoints/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
@@ -13,8 +14,10 @@ build/
 data/raw/**
 data/interim/**
 data/processed/**
+data/incoming/**
 !data/raw/.gitkeep
 !data/interim/.gitkeep
 !data/processed/.gitkeep
+!data/incoming/.gitkeep
 models/
 reports/generated/
