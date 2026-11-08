@@ -63,7 +63,7 @@ def parameters(html: str, source_id: str) -> list[dict]:
         match = matches[0]
         value = (mass(match.group(1), "млн тонн") if original_unit == "тонн" else
                  format(Decimal(match.group(1).replace(",", ".")) * 1000, "f"))
-        # Для фур коэффициент 1000 относится к масштабу счётчика, а не к переводу в тонны.
+        # Для фур коэффициент 1000 относится к масхорштабу счётчика, а не к переводу в тонны.
         rows.append({"parameter_id": object_id + "_declared_capacity", "object_id": object_id,
                      "metric": metric, "value": value, "unit": unit, "period_basis": "year",
                      "valid_from": "", "valid_to": "", "source_id": source_id,
