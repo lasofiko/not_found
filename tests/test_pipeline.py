@@ -50,7 +50,7 @@ def catalog_fixture():
     return buffer.getvalue()
 
 
-def test_registry(root):
+def make_registry(root):
     shutil.copytree(ROOT / "pipeline", root / "pipeline", ignore=shutil.ignore_patterns("__pycache__"))
     artifacts = []
     for key, payload, fmt in (("hackathon_catalog", catalog_fixture(), "xlsx"),
@@ -153,7 +153,7 @@ class ValidationTests(unittest.TestCase):
         self.assertTrue(validate(self.path))
 
     def test_source_and_original_are_required_with_registry(self):
-        artifacts = test_registry(self.root)
+        artifacts = make_registry(self.root)
         self.assertTrue(self.check([self.row], registry=self.root / "data/source_registry.json", root=self.root))
         registered = {**self.row, "source_id": artifacts[0]["source_id"]}
         self.assertEqual(self.check([registered], registry=self.root / "data/source_registry.json", root=self.root), [])
@@ -171,7 +171,7 @@ class BuildTests(unittest.TestCase):
         with TemporaryDirectory() as name:
             root = Path(name) / "source"
             root.mkdir()
-            test_registry(root)
+            make_registry(root)
             for relative in ("docs/data-preparation.md", "docs/contracts.md", "data/README.md"):
                 target = root / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -188,7 +188,7 @@ class BuildTests(unittest.TestCase):
     def test_rebuild_is_identical_keeps_annual_granularity_and_does_not_approve_target(self):
         with TemporaryDirectory() as name:
             root = Path(name)
-            test_registry(root)
+            make_registry(root)
             primary = root / "data/processed/observations.csv"
             primary.parent.mkdir(parents=True)
             primary.write_text("existing team work", encoding="utf-8")
@@ -211,7 +211,7 @@ class BuildTests(unittest.TestCase):
     def test_changed_original_stops_build(self):
         with TemporaryDirectory() as name:
             root = Path(name)
-            artifacts = test_registry(root)
+            artifacts = make_registry(root)
             (root / artifacts[0]["local_path"]).write_bytes(b"tampered")
             with self.assertRaises(ValueError):
                 build(root)
@@ -219,7 +219,7 @@ class BuildTests(unittest.TestCase):
     def test_output_tampering_is_detected(self):
         with TemporaryDirectory() as name:
             root = Path(name)
-            test_registry(root)
+            make_registry(root)
             build(root)
             path = root / "data/processed/context_observations.csv"
             path.write_bytes(path.read_bytes().replace(b"1234500.0", b"9999999.0"))
@@ -228,7 +228,7 @@ class BuildTests(unittest.TestCase):
     def test_registration_keeps_old_original_when_source_changes(self):
         with TemporaryDirectory() as name:
             root = Path(name)
-            first = test_registry(root)[0]
+            first = make_registry(root)[0]
             changed = register(root, first, b"new bytes", first["url"], "text/html", "utf-8")
             self.assertNotEqual(first["source_id"], changed["source_id"])
             self.assertTrue((root / first["local_path"]).is_file())
