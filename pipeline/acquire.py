@@ -5,7 +5,9 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import unicodedata
 from urllib.request import Request, urlopen
+from zipfile import BadZipFile
 
 from pipeline.common import ROOT, digest, load_registry, verify_artifact, write_json
 
@@ -64,6 +66,7 @@ def main() -> int:
     parser.add_argument("--source", nargs="+", help="Ключи из pipeline/sources.json")
     parser.add_argument("--refresh", action="store_true", help="Получить новые снимки, сохранив прежние")
     parser.add_argument("--local", nargs=2, action="append", default=[], metavar=("KEY", "FILE"))
+    parser.add_argument("--local-dir", type=Path, help="Импорт известных файлов и ZIP из каталога без сети")
     args = parser.parse_args()
     root = args.root.resolve()
     registry_path = root / "data/source_registry.json"
@@ -76,13 +79,17 @@ def main() -> int:
         parser.error("Неизвестный источник: " + ", ".join(sorted(set(args.source) - known)))
     selected = [spec for spec in specs if not args.source or spec["source_key"] in args.source]
     # --local без --source регистрирует только предоставленные документы.
-    if args.local and not args.source:
+    if (args.local or args.local_dir) and not args.source:
         selected = []
     pending, issues = [], []
     for spec in selected:
         cached = [item for item in artifacts if item["source_key"] == spec["source_key"]]
-        if cached and not args.refresh:
-            verify_artifact(root, cached[-1])
+        if cached and not args.refresh and (root / cached[-1]["local_path"]).is_file():
+            try:
+                verify_artifact(root, cached[-1])
+            except (OSError, ValueError) as error:
+                print(f"Получение остановлено: {error}")
+                return 1
             print(f"Сохранённый оригинал проверен: {spec['source_key']}")
         else:
             pending.append(spec)
@@ -113,13 +120,21 @@ def main() -> int:
         local_specs = json.loads((ROOT / "pipeline/local_sources.json").read_text(encoding="utf-8"))
         matching = next((item for item in local_specs if item["source_key"] == key), None)
         if matching is not None:
-            if path.name != matching["filename"]:
+            if unicodedata.normalize("NFC", path.name) != unicodedata.normalize("NFC", matching["filename"]):
                 parser.error(f"Для {key} ожидается файл {matching['filename']}")
             spec.update(matching)
         artifact = register(root, spec, path.read_bytes(), spec["url"], "application/octet-stream", None)
         if not any(item["source_id"] == artifact["source_id"] for item in artifacts):
             artifacts.append(artifact)
         print(f"Зарегистрирован предоставленный документ: {key}")
+    if args.local_dir:
+        from pipeline.local_import import import_directory
+        try:
+            count = import_directory(root, args.local_dir.resolve(), artifacts, register)
+            print(f"Импортировано локальных файлов/комплектов: {count}; паспортов: {len(artifacts)}")
+        except (OSError, ValueError, KeyError, BadZipFile, UnicodeError) as error:
+            print(f"Импорт остановлен: {error}")
+            return 1
     write_json(registry_path, {"schema_version": "0.2", "artifacts": artifacts,
                                "failures": list(failures.values())})
     write_json(root / "data/interim/acquisition_errors.json", list(failures.values()))

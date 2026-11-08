@@ -29,13 +29,15 @@ def valid_period(period: str, granularity: str) -> bool:
 
 def validate(path: Path, *, registry: Path | None = None, root: Path = ROOT,
              corridor: bool = False, require_observations: bool = False,
-             observed_only: bool = False) -> list[str]:
+             observed_only: bool = False, source_ids: set[str] | None = None) -> list[str]:
     if not path.is_file():
         return [f"Файл не найден: {path}"]
     errors, sources = [], None
     if registry is not None:
         try:
             sources = {a["source_id"]: a for a in load_registry(root, registry)}
+            if source_ids is not None:
+                sources = {key: a for key, a in sources.items() if key in source_ids}
             for artifact in sources.values():
                 required = {"organization", "url", "downloaded_at", "local_path", "sha256",
                             "purpose", "period", "geography", "direction", "mode", "metric",

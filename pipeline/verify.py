@@ -7,18 +7,69 @@ from pathlib import Path
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from pipeline.common import ROOT, digest, load_registry, verify_artifact
+from pipeline.common import ROOT, artifact_path, digest, load_registry, verify_artifact
 from pipeline.extract import mass
 from pipeline.validate import validate
+
+
+def verify_supplemental(root: Path, manifest: dict) -> list[str]:
+    errors = []
+    def read(name):
+        path = "data/processed/" + name
+        if path not in manifest["outputs"]:
+            return []
+        with (root / path).open(encoding="utf-8-sig", newline="") as stream:
+            return list(csv.DictReader(stream))
+    for filename in ("regional_indicators.csv", "supplemental_freight.csv", "port_cabotage_cumulative.csv"):
+        for row in read(filename):
+            raw, val = row["original_value"], row["value"]
+            special = filename.startswith("regional") and raw in {"CD", "ND", "-77777777", "-99999999"}
+            absent = special or raw in {"", "-", "–", "—"}
+            try:
+                correct = val == "" if absent else Decimal(val) == Decimal(raw.replace(",", ".")) * Decimal(row["conversion_factor"])
+            except InvalidOperation:
+                correct = False
+            if not correct:
+                errors.append(f"{filename}: неверный пересчёт/пропуск: {row['source_locator']}")
+            if filename != "regional_indicators.csv" and val and Decimal(val) < 0:
+                errors.append(f"{filename}: отрицательное значение")
+            if filename == "supplemental_freight.csv":
+                if row["direction_scope"] not in {"inbound", "outbound", "both", "unknown"}:
+                    errors.append("Неизвестный охват направлений дополнительного ряда")
+                if row["status"] == "estimated" and not row["formula"]:
+                    errors.append("Оценка дополнительного ряда без формулы")
+    regional = read("regional_indicators.csv")
+    if regional and [r for r in regional if r["indicator_code"] in {"Y477110061", "Y477110290", "Y477110293"}] != read("regional_freight.csv"):
+        errors.append("Грузовой региональный срез отличается от общего набора")
+    cumulatives = read("port_cabotage_cumulative.csv")
+    port_key = lambda r: tuple(r[f] for f in ("source_id", "period", "port", "operator", "cargo_group", "measurement_scope", "unit"))
+    lookup = defaultdict(list)
+    for row in cumulatives:
+        lookup[port_key(row)].append(row)
+    for row in read("port_cabotage_monthly.csv"):
+        current = lookup[port_key(row)]
+        month = int(row["period"][5:])
+        previous = lookup[port_key({**row, "source_id": row["previous_source_id"], "period": f"{row['period'][:4]}-{month - 1:02d}"})] if month > 1 else []
+        correct = len(current) == 1 and (month == 1 or len(previous) == 1)
+        if correct:
+            expected = Decimal(current[0]["value"]) - (Decimal(previous[0]["value"]) if previous else 0)
+            correct = Decimal(row["value"]) == expected and expected >= 0
+        if not correct or row["status"] != "estimated" or row["period_granularity"] != "month" or not row["formula"]:
+            errors.append("Месячная разность SeaNews не соответствует накоплениям")
+    return errors
 
 
 def verify(root: Path) -> list[str]:
     try:
         artifacts = load_registry(root)
-        for artifact in artifacts:
-            verify_artifact(root, artifact)
         manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
         errors = []
+        input_ids = {a["source_id"] for a in manifest["inputs"]}
+        partial = manifest.get("build_scope") == "available_only"
+        selected = [a for a in artifacts if a["source_id"] in input_ids]
+        for artifact in artifacts:
+            if not partial or artifact["source_id"] in input_ids or artifact_path(root, artifact).is_file():
+                verify_artifact(root, artifact)
         registry_sha = digest((root / "data/source_registry.json").read_bytes())
         if registry_sha != manifest["registry_sha256"]:
             errors.append("Реестр изменился после сборки: требуется повторная сборка")
@@ -28,14 +79,34 @@ def verify(root: Path) -> list[str]:
                 raise ValueError("Путь из манифеста выходит за корень комплекта")
             if not actual.is_file() or digest(actual.read_bytes()) != expected:
                 errors.append(f"Не совпадает SHA-256 результата или кода: {path}")
-        inputs = sorted((a["source_id"], a["sha256"]) for a in artifacts)
+        inputs = sorted((a["source_id"], a["sha256"]) for a in (selected if partial else artifacts))
         expected_inputs = sorted((a["source_id"], a["sha256"]) for a in manifest["inputs"])
         if inputs != expected_inputs:
             errors.append("Входные оригиналы не совпадают с манифестом сборки")
+        if partial and set(manifest["unavailable_source_ids"]) != {a["source_id"] for a in artifacts} - input_ids:
+            errors.append("Список недоступных оригиналов не совпадает с реестром")
+        if errors:
+            return errors
         errors.extend(validate(root / "data/processed/candidate_observations.csv",
                                registry=root / "data/source_registry.json", root=root,
-                               corridor=True, require_observations=True, observed_only=True))
-        source_ids = {a["source_id"] for a in artifacts}
+                               corridor=True, require_observations=bool(manifest["candidate_rows"]), observed_only=True,
+                               source_ids=input_ids if partial else None))
+        source_ids = input_ids
+        for relative in manifest["outputs"]:
+            if not relative.endswith(".csv"):
+                continue
+            with (root / relative).open(encoding="utf-8-sig", newline="") as stream:
+                rows = list(csv.DictReader(stream))
+            expected_count = manifest["table_rows"].get(Path(relative).name)
+            if expected_count is not None and len(rows) != expected_count:
+                errors.append(f"{relative}: число строк не совпадает с манифестом")
+            for row in rows:
+                for key in ("source_id", "previous_source_id"):
+                    if row.get(key) and row[key] not in source_ids:
+                        errors.append(f"{relative}: источник не включён в сборку: {row[key]}")
+                if any(s not in source_ids for s in filter(None, row.get("upstream_source_ids", "").split(";"))):
+                    errors.append(f"{relative}: первоисточник не включён в сборку")
+        errors.extend(verify_supplemental(root, manifest))
         with (root / "data/processed/context_observations.csv").open(encoding="utf-8-sig", newline="") as stream:
             seen = set()
             for line, row in enumerate(csv.DictReader(stream), 2):
@@ -125,7 +196,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args()
     errors = verify(args.root.resolve())
-    print("\n".join(errors) if errors else "Комплект проверен: оригиналы, результаты, код, происхождение и единицы. Цель ожидает решения команды.")
+    print("\n".join(errors) if errors else "Комплект проверен в пределах входов манифеста: оригиналы, результаты, код, происхождение и единицы. Цель ожидает решения команды.")
     return int(bool(errors))
 
 

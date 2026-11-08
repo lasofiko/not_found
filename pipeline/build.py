@@ -1,18 +1,20 @@
 """Воспроизводимая офлайн-сборка кандидата, контекста и отчёта о покрытии."""
 import argparse
 from collections import defaultdict
+import csv
 from decimal import Decimal
 import json
 from pathlib import Path
 import re
 
 from pipeline.common import (
-    OBSERVATION_FIELDS, PIPELINE_VERSION, ROOT, digest, load_registry,
+    OBSERVATION_FIELDS, PIPELINE_VERSION, ROOT, artifact_path, digest, load_registry,
     verify_artifact, write_csv, write_json,
 )
 from pipeline.extract import Document, catalog, extract_ferry, extract_freight, mass
 from pipeline.validate import validate
 from pipeline.tables import prepare_tables
+from pipeline.supplemental import prepare_supplemental
 
 CANDIDATE_FIELDS = OBSERVATION_FIELDS + [
     "route_id", "in_wagon_on_ferry", "source_locator", "original_value", "original_unit",
@@ -84,7 +86,7 @@ def audit_report(version: str, artifacts: list[dict], candidate: list[dict], con
         "",
         f"- {len(artifacts)} оригиналов с паспортами и SHA-256; каталог из {catalog_count} ссылок сохранён отдельно от фактов.",
         f"- {len(candidate)} годовых наблюдений линии Усть-Луга — Калининград за 2015–2023: по 9 на ввоз и вывоз, одна группа «все грузы».",
-        f"- {len(context)} справочных строк: итоги/каботаж терминала за 2015–2023 и две таблицы перевозок филиала за 2022–2025; прочерк сохранён как пропуск.",
+        f"- {len(context)} справочных строк. Включённые ряды: {', '.join(sorted({r['series_id'] for r in context})) or 'нет'}. Отсутствующие источники не дополняются; прочерк сохранён как пропуск.",
         "- Два параметра заявленных мощностей терминалов; таблица факторов содержит только заголовок до выбора цели и проверки исторической доступности.",
         "",
         "Проверен опубликованный узкий показатель, а не полная масса коридора. `candidate_observations.csv` нельзя автоматически считать утверждённой обучающей целью. Основной `observations.csv` не создаётся.",
@@ -164,26 +166,67 @@ def audit_report(version: str, artifacts: list[dict], candidate: list[dict], con
     return "\n".join(rows)
 
 
-def build(root: Path) -> dict:
+def supplemental_report(quality: dict) -> str:
+    lines = ["# Качество новых комплектов", "", f"Версия: `{quality['data_version']}`.", "",
+             "Цель — грузовой коридор Калининград ↔ основная часть РФ по всем видам транспорта. "
+             "Ни одна таблица автоматически не объявляется полным целевым рядом. Человеческая приёмка не выполнена.", "",
+             "## Выпущенные таблицы", "", "| Таблица | Строк |", "|---|---:|"]
+    lines += [f"| `{name}` | {count} |" for name, count in quality["rows"].items()]
+    if quality.get("regional"):
+        q = quality["regional"]
+        lines += ["", "## Региональная книга", "",
+                  f"Длинный лист: {q['rows']} строк. Специальные коды: `{json.dumps(q['special_codes'], ensure_ascii=False)}`. "
+                  "Исходные коды сохранены, нормализованное число пусто; расшифровка требует паспорта. CD/ND в метаданных не удаляют число.", "",
+                  f"Повторяющихся ключей с учётом нормализованной единицы: {q['repeated_version_keys']}; "
+                  f"с разными непустыми значениями: {q['conflicting_version_keys']}. Все издания сохранены, приоритет не назначался.", "",
+                  f"Широкий лист: {q['wide_checks']} сверок, {q['wide_mismatches']} расхождений. "
+                  "Это представление длинного листа, а не дополнительные наблюдения.", "",
+                  f"Копия экспорта: `{json.dumps(quality['combined_export_checks'], ensure_ascii=False)}`. "
+                  "Повторный экспорт не прибавляется к основным экспортным таблицам."]
+    lines += ["", "## Диагностика", "", "| Причина | Записей |", "|---|---:|"]
+    lines += [f"| `{name}` | {count} |" for name, count in sorted(quality["issues"].items())]
+    lines += ["", "Подробности с указателями строк: `data/processed/supplemental_issues.csv`.", "",
+              "## Правила использования", "",
+              "- Публикации о паромах имеют разные направления, состав флота, линии и формы перевозки. Числа «более» — нижние границы, «около» — приблизительные значения. Итоги и компоненты не складываются автоматически.",
+              "- LTG: международные перевозки, весь транзит, коридор и доля — разные показатели. Оценка из доли имеет статус estimated и формулу. Расхождение 2024 сохранено отдельно.",
+              "- SeaNews: накопления с января, сравнительные годы и версии сохранены. Месячные разности estimated выпускаются только при наличии соседних сопоставимых строк. Отрицательные/неполные разности не заменяются нулями. Уровни порта и операторов и вложенные группы не суммируются.",
+              "- Пересечения грузовиков остаются в автомобилях; география Польша — область не доказывает OD основной части РФ. Авиационный ряд не создаётся.",
+              "- Региональные показатели остаются контекстом и кандидатами факторов; дата исторической доступности и лаг ещё не подтверждены.",
+              "- CSV архивов — предоставленные производные. Их паспорта связаны с включёнными HTML/PDF, но человеческая сверка чисел с первоисточником ещё требуется.", "",
+              "## Участие ИИ и приёмка", "",
+              "ИИ написал импорт, обработчики, диагностику и обзор. Автоматическая сверка хешей и таблиц не заменяет человеческую проверку методики, единиц и исходных ячеек. Поля review_status остаются pending.", ""]
+    return "\n".join(lines)
+
+
+def build(root: Path, *, available_only: bool = False) -> dict:
     artifacts = load_registry(root)
-    latest = {}
+    latest_registered, available, unavailable = {}, [], []
     for artifact in artifacts:
+        latest_registered[artifact["source_key"]] = artifact
+        if not artifact_path(root, artifact).is_file() and available_only:
+            unavailable.append(artifact["source_id"])
+            continue
         verify_artifact(root, artifact)
-        latest[artifact["source_key"]] = artifact
+        available.append(artifact)
+    source_ids = {a["source_id"] for a in available}
+    latest = {key: a for key, a in latest_registered.items() if a["source_id"] in source_ids}
     required = {"hackathon_catalog", "rosmorport_freight", "rosmorport_ferry"}
-    if required - latest.keys():
+    if not available_only and required - latest.keys():
         raise ValueError("Нет обязательных оригиналов: " + ", ".join(sorted(required - latest.keys())))
-    inputs = [{"source_id": a["source_id"], "sha256": a["sha256"]} for a in artifacts]
+    inputs = [{"source_id": a["source_id"], "sha256": a["sha256"]} for a in available]
     code = {f"pipeline/{p.name}": digest(p.read_bytes())
             for p in sorted((ROOT / "pipeline").iterdir()) if p.suffix in {".py", ".json", ".toml"}}
     fingerprint = {"inputs": sorted(inputs, key=lambda a: a["source_id"]), "code": code, "pipeline_version": PIPELINE_VERSION,
+                   "build_scope": "available_only" if available_only else "full", "unavailable_source_ids": sorted(unavailable),
                    "registry_sha256": digest((root / "data/source_registry.json").read_bytes())}
+    if "hackathon_catalog" not in latest:
+        fingerprint["catalog_sha256"] = digest((root / "data/source_catalog.csv").read_bytes()) if (root / "data/source_catalog.csv").exists() else None
     version = "bb-data-" + digest(json.dumps(fingerprint, sort_keys=True).encode())[:12]
     def text_source(key):
         artifact = latest[key]
         return verify_artifact(root, artifact).read_text(encoding=artifact["encoding"] or "utf-8")
-    freight = latest["rosmorport_freight"]
-    lines, terminal = extract_freight(text_source("rosmorport_freight"))
+    freight = latest.get("rosmorport_freight")
+    lines, terminal = extract_freight(text_source("rosmorport_freight")) if freight else ([], [])
     candidate = []
     for row in lines:
         inbound = row["label"] == "Выгружено (тонн)"
@@ -211,7 +254,7 @@ def build(root: Path) -> dict:
             "status": "observed", "source_id": freight["source_id"], "source_locator": row["source_locator"],
             "quality_note": "Перевалка терминала: другой объект учёта, не сумма направлений коридора.", "data_version": version,
         })
-    for row in extract_ferry(text_source("rosmorport_ferry")):
+    for row in extract_ferry(text_source("rosmorport_ferry")) if "rosmorport_ferry" in latest else []:
         context.append({**row, "period_granularity": "year", "geography": "ust_luga_kaliningrad_branch_fleet",
                         "direction": "", "mode": "sea", "metric": "Количество перевезенных грузов, включая накатную технику и железнодорожные вагоны",
                         "original_unit": "тыс. тонн", "conversion_factor": "1000", "status": "observed",
@@ -225,23 +268,36 @@ def build(root: Path) -> dict:
         cabotage = next(Decimal(r["value_tonnes"]) for r in context if r["period"] == year and r["series_id"] == "terminal_cabotage")
         reconciliation.append({"period": year, "line_sum_tonnes": str(line_sum),
                                "terminal_cabotage_tonnes": str(cabotage), "difference_tonnes": str(cabotage - line_sum), "source_id": freight["source_id"]})
-    catalog_rows = catalog(verify_artifact(root, latest["hackathon_catalog"]).read_bytes())
-    saved_urls = {a["url"] for a in artifacts}
+    catalog_path = root / "data/source_catalog.csv"
+    if "hackathon_catalog" in latest:
+        catalog_rows = catalog(verify_artifact(root, latest["hackathon_catalog"]).read_bytes())
+    elif catalog_path.exists():
+        with catalog_path.open(encoding="utf-8-sig", newline="") as stream:
+            catalog_rows = list(csv.DictReader(stream))
+    else:
+        catalog_rows = []
+    saved_urls = {a["url"] for a in available}
     for row in catalog_rows:
-        if row["url"] in saved_urls:
+        if "hackathon_catalog" in latest and row["url"] in saved_urls:
             row["review_status"] = "index_saved"
             row["limitations"] = "Сохранена страница раздела; вложенные файлы и пригодность целевого ряда не подтверждены."
     outputs = {
-        "data/source_catalog.csv": (list(catalog_rows[0]), catalog_rows),
         "data/processed/candidate_observations.csv": (CANDIDATE_FIELDS, candidate),
         "data/processed/context_observations.csv": (CONTEXT_FIELDS, context),
         "data/processed/factors.csv": (FACTOR_FIELDS, []),
-        "data/processed/scenario_parameters.csv": (PARAMETER_FIELDS, parameters(text_source("rosmorport_freight"), freight["source_id"])),
+        "data/processed/scenario_parameters.csv": (PARAMETER_FIELDS, parameters(text_source("rosmorport_freight"), freight["source_id"]) if freight else []),
         "data/processed/coverage.csv": (COVERAGE_FIELDS, make_coverage(candidate, context)),
         "data/interim/reconciliation.csv": (["period", "line_sum_tonnes", "terminal_cabotage_tonnes", "difference_tonnes", "source_id"], reconciliation),
     }
+    if "hackathon_catalog" in latest:
+        outputs["data/source_catalog.csv"] = (list(catalog_rows[0]), catalog_rows)
     table_outputs, table_quality, table_report = prepare_tables(root, latest, version)
     outputs.update(table_outputs)
+    supplemental_outputs, supplemental_quality = prepare_supplemental(
+        root, latest, version, table_outputs.get("data/processed/exports_clean.csv", ([], []))[1])
+    outputs.update(supplemental_outputs)
+    if not candidate and not table_outputs and not supplemental_outputs:
+        raise ValueError("Нет доступных данных для обработки; импортируйте оригиналы")
     for path, (fields, rows) in outputs.items():
         write_csv(root / path, fields, rows)
     failures = json.loads((root / "data/source_registry.json").read_text(encoding="utf-8")).get("failures", [])
@@ -252,25 +308,52 @@ def build(root: Path) -> dict:
            "imputation": "Не выполнялась", "target_selection": "pending",
            "warnings": ["Методология и охват кандидата требуют проверки человеком.", "Полной месячной матрицы не подтверждено.", "Неизвестные даты действия мощностей; факторы отсутствуют."],
            "candidate_rows": len(candidate), "context_rows": len(context), "reconciliation_mismatches": sum(Decimal(r["difference_tonnes"]) != 0 for r in reconciliation)}
+    log.update(build_scope=fingerprint["build_scope"], unavailable_source_ids=sorted(unavailable),
+               catalog_status="original_available" if "hackathon_catalog" in latest else "catalog_original_unavailable",
+               supplemental=supplemental_quality["rules"])
     if table_quality is not None:
         log["user_tables"] = table_quality["rules"]
         log["user_tables"]["outputs"] = {Path(p).name: len(rows) for p, (_, rows) in table_outputs.items()}
     write_json(root / "data/processed/transformation_log.json", log)
     report_path = root / "docs/data-audit.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(audit_report(version, artifacts, candidate, context, reconciliation, failures, len(catalog_rows)), encoding="utf-8")
+    if candidate:
+        report = audit_report(version, available, candidate, context, reconciliation, failures, len(catalog_rows))
+    else:
+        report = ("# Аудит доступного комплекта грузовых данных\n\n"
+                  f"Версия: `{version}`. Режим: `{fingerprint['build_scope']}`.\n\n"
+                  "Подтверждённый полный ряд тонн коридора не собран; цель модели ожидает решения команды. "
+                  "Таблица candidate_observations.csv содержит только заголовок: первичная страница направленного ряда недоступна. "
+                  "Предоставленная копия годового CSV сохранена отдельно как производная, не принята автоматически.\n\n"
+                  "Показатели регионов, портов, операторов и границы имеют разный охват. "
+                  "Сравнение источников и методики требуют человеческой приёмки.\n")
+    report += ("\n## Доступность и новые комплекты\n\n"
+               f"Доступных оригиналов: {len(available)}; отсутствующих зарегистрированных: {len(unavailable)}. "
+               "Полный список — `unavailable_source_ids` манифеста.\n\n"
+               f"Статус каталога: `{log['catalog_status']}`; ссылок: {len(catalog_rows)}. "
+               "Копия каталога не считается повторной проверкой Google-таблицы.\n\n"
+               "Новые таблицы и диагностика: [качество комплектов](supplemental-quality.md). "
+               "Порядок передачи и следующие задачи: [Data Engineer](data-engineer-next-steps.md).\n\n"
+               "ИИ подготовил обработчики и автоматические проверки. Человеческая сверка не заявляется.\n")
+    report_path.write_text(report, encoding="utf-8")
     issues = validate(root / "data/processed/candidate_observations.csv", registry=root / "data/source_registry.json",
-                      root=root, corridor=True, require_observations=True, observed_only=True)
+                      root=root, corridor=True, require_observations=bool(candidate), observed_only=True,
+                      source_ids=source_ids if available_only else None)
     if issues:
         raise ValueError("\n".join(issues))
     paths = [*outputs, "data/processed/transformation_log.json", "docs/data-audit.md"]
+    if catalog_path.exists() and "data/source_catalog.csv" not in paths:
+        paths.append("data/source_catalog.csv")
     if table_quality is not None:
         write_json(root / "data/processed/table_quality.json", table_quality)
         (root / "docs/tables-quality.md").write_text(table_report, encoding="utf-8")
         paths.extend(["data/processed/table_quality.json", "docs/tables-quality.md"])
+    write_json(root / "data/processed/supplemental_quality.json", supplemental_quality)
+    (root / "docs/supplemental-quality.md").write_text(supplemental_report(supplemental_quality), encoding="utf-8")
+    paths.extend(["data/processed/supplemental_quality.json", "docs/supplemental-quality.md"])
     manifest = {**fingerprint, "data_version": version, "target_selection": "pending",
                 "outputs": {p: digest((root / p).read_bytes()) for p in sorted(paths)},
-                "table_rows": {Path(p).name: len(rows) for p, (_, rows) in table_outputs.items()},
+                "table_rows": {Path(p).name: len(rows) for p, (_, rows) in outputs.items()},
                 "candidate_rows": len(candidate), "context_rows": len(context), "validation": "passed"}
     write_json(root / "data/processed/build_manifest.json", manifest)
     return manifest
@@ -279,13 +362,15 @@ def build(root: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--available-only", action="store_true", help="Обработать доступные оригиналы, перечислив отсутствующие")
     args = parser.parse_args()
     try:
-        manifest = build(args.root.resolve())
+        manifest = build(args.root.resolve(), available_only=args.available_only)
     except (OSError, ValueError, KeyError) as error:
         print(f"Сборка остановлена: {error}")
         return 1
     print(f"Подготовлен кандидат: {manifest['candidate_rows']} строк; контекст: {manifest['context_rows']}. Версия: {manifest['data_version']}. Цель не утверждена.")
+    print(f"Режим: {manifest['build_scope']}; отсутствующих оригиналов: {len(manifest['unavailable_source_ids'])}")
     if manifest["table_rows"]:
         print("Пользовательские таблицы: " + "; ".join(f"{name}: {count}" for name, count in manifest["table_rows"].items()))
     return 0

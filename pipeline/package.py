@@ -14,16 +14,19 @@ def package(root: Path, output: Path) -> Path:
         raise ValueError("\n".join(errors))
     manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     paths = set(manifest["outputs"]) | set(manifest["code"])
-    paths.update(a["local_path"] for a in load_registry(root))
+    input_ids = {a["source_id"] for a in manifest["inputs"]}
+    paths.update(a["local_path"] for a in load_registry(root) if a["source_id"] in input_ids)
     paths.update({"data/source_registry.json", "data/processed/build_manifest.json",
                   "data/README.md", "docs/data-preparation.md", "docs/contracts.md"})
     paths.update(relative for relative in ("README.md", "pyproject.toml", "docs/hypotheses-for-discussion.md",
-                                          "notebooks/dataset_overview.ipynb", "notebooks/README.md")
+                                          "notebooks/dataset_overview.ipynb", "notebooks/README.md", "docs/data-engineer-next-steps.md",
+                                          "docs/team-discussion.md")
                  if (root / relative).is_file())
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
     with ZipFile(temporary, "w", compression=ZIP_DEFLATED) as archive:
-        archive.writestr("HANDOFF.md", (root / "docs/data-preparation.md").read_bytes())
+        scope = f"Режим комплекта: {manifest.get('build_scope', 'full')}. Отсутствующих оригиналов: {len(manifest.get('unavailable_source_ids', []))}.\n\n"
+        archive.writestr("HANDOFF.md", scope.encode() + (root / "docs/data-preparation.md").read_bytes())
         for relative in sorted(paths):
             path = (root / relative).resolve()
             if not path.is_relative_to(root.resolve()):
