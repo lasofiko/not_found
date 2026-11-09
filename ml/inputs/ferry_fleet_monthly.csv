@@ -1,0 +1,28 @@
+﻿period,active_ferries,source_url,quote,extraction,review_status
+2023-08,4,https://obl.ru/pressa/news/avgust-stabilnyy-rost-/,работали все четыре парома,text_pattern,pending
+2023-09,4,https://obl.ru/pressa/news/sentyabr-pokazateli-v-norme-/,все четыре парома,text_pattern,pending
+2023-11,4,https://obl.ru/pressa/news/noyabr-po-fakticheskoy-pogode/,Четыре железнодорожных парома,text_pattern,pending
+2023-12,4,https://obl.ru/pressa/news/dekabr-zavershili-god-uspeshno/,работали все четыре железнодорожных парома,text_pattern,pending
+2024-01,3,https://obl.ru/pressa/news/chto-vozili-v-yanvare/,работали три железнодорожных парома,text_pattern,pending
+2024-02,3,https://obl.ru/pressa/news/fevral-vsye-stabilno-/,работали три железнодорожных парома,text_pattern,pending
+2024-03,3,https://obl.ru/pressa/news/mart-vesne-paromy/,работали три железнодорожных парома,text_pattern,pending
+2024-04,3,https://obl.ru/pressa/news/aprel-pokazateli-stabilny/,3 железнодорожных парома,text_pattern,pending
+2024-05,4,https://obl.ru/pressa/news/may-aprelyu-ne-tovarishch/,работали 4 парома,text_pattern,pending
+2024-06,4,https://obl.ru/pressa/news/iyun-belye-nochi/,работали 4 парома,text_pattern,pending
+2024-07,4,https://obl.ru/pressa/news/v-iyule-zharko-a-rasstavatsya-s-nim-zhalko/,работали 4 парома,text_pattern,pending
+2024-08,4,https://obl.ru/pressa/news/vot-i-leto-proshlo/,работали 4 парома,text_pattern,pending
+2024-09,4,https://obl.ru/pressa/news/sentyabr-bez-plodov-ne-byvaet/,работали 4 парома,text_pattern,pending
+2024-10,4,https://obl.ru/pressa/news/teplyy-oktyabr-k-moroznoy-zime/,работали 4 парома,text_pattern,pending
+2024-11,5,https://obl.ru/pressa/news/vesti-noyabrya-/,работали все 5 паромов,text_pattern,pending
+2024-12,5,https://obl.ru/pressa/news/vesti-dekabrya/,работали все 5 паромов,text_pattern,pending
+2025-01,5,https://obl.ru/pressa/news/pervye-itogi-goda/,работали все 5 паромов,text_pattern,pending
+2025-02,4,https://obl.ru/pressa/news/k-vesne-gotovy/,работали 4 железнодорожных парома,text_pattern,pending
+2025-03,4,https://obl.ru/pressa/news/itogi-marta/,работали 4 железнодорожных парома,text_pattern,pending
+2025-04,4,https://obl.ru/pressa/news/perevozki-v-aprele/,работали 4 железнодорожных парома,text_pattern,pending
+2025-05,4,https://obl.ru/pressa/news/god-po-vesne-viden/,работали 4 железнодорожных парома,text_pattern,pending
+2025-06,4,https://obl.ru/pressa/news/kogda-pogoda-ne-raduet/,работали 4 железнодорожных парома,text_pattern,pending
+2025-07,3,https://obl.ru/pressa/news/povorot-leta/,работали 3 железнодорожных парома,text_pattern,pending
+2025-08,4,https://obl.ru/pressa/news/more-avgusta-rost-perevozok/,работали все 4 железнодорожных парома,text_pattern,pending
+2025-09,3,https://obl.ru/pressa/news/konteynernyy-rost-v-sentyabre/,работали 3 железнодорожных парома,text_pattern,pending
+2025-10,4,https://obl.ru/pressa/news/oktyabr-rost-paromnykh-perevozok/,работали 4 железнодорожных парома,text_pattern,pending
+2025-11,4,https://obl.ru/pressa/news/noyabr-snova-rost/,работали 4 железнодорожных парома,text_pattern,pending
