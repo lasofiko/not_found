@@ -125,7 +125,7 @@ export default function App() {
 
   const exportReport = () => {
     const rows = [
-      ['Прогноз грузовых перевозок', ''],
+      ['FloCast', ''],
       ['Направление', applied.direction],
       ['Транспорт', applied.transport],
       ['Сценарий', scenarioTitle],
@@ -162,8 +162,8 @@ export default function App() {
       {navOpen && <button className="nav-backdrop" aria-label="Закрыть навигацию" onClick={() => setNavOpen(false)} />}
       <aside className={`sidebar ${navOpen ? 'is-open' : ''}`}>
         <div className="sidebar-brand">
-          <span className="brand-mark">nf</span>
-          <span className="wordmark">Not <s>Found</s></span>
+          <span className="brand-mark" title="Команда Not Found">nf</span>
+          <span className="wordmark">Flo<s>Cast</s></span>
           <button className="sidebar-close" aria-label="Закрыть меню" onClick={() => setNavOpen(false)}><X size={20} /></button>
         </div>
         <nav className="main-nav" aria-label="Разделы дашборда">
@@ -188,7 +188,7 @@ export default function App() {
           <header className={`topbar ${profileOpen ? 'profile-open' : ''}`}>
             <button className="mobile-menu" aria-label="Открыть навигацию" onClick={() => setNavOpen(true)}><Menu size={22} /></button>
             <div className="page-heading">
-              <h1>Прогноз грузоперевозок</h1>
+              <h1>FloCast</h1>
               <p>Калининградская агломерация <span>↔</span> 2025–2030</p>
             </div>
             <NeonWaves />
@@ -356,11 +356,11 @@ export default function App() {
           </section>
 
           <section className="ai-note" id="about">
-            <Info size={21} /><div><h2>О проекте</h2><p>«Инструмент прогноза грузовых перевозок» — демонстрационный проект команды Not Found для Калининградской агломерации. Он помогает сравнивать сценарии развития транспортной сети до 2030 года: оценивать объём грузов, время доставки, доступность городов и загрузку терминалов. Интерфейс работает на иллюстративных данных и предназначен для обсуждения решений, а не для официального прогнозирования.</p></div><Route size={28} />
+            <Info size={21} /><div><h2>О FloCast</h2><p>FloCast — демонстрационный проект команды Not Found для Калининградской агломерации. Он помогает сравнивать сценарии развития транспортной сети до 2030 года: оценивать объём грузов, время доставки, доступность городов и загрузку терминалов. Интерфейс работает на иллюстративных данных и предназначен для обсуждения решений, а не для официального прогнозирования.</p></div><Route size={28} />
           </section>
         </main>
 
-        <footer className="site-footer"><span>© 2025 Not Found · Калининградская агломерация</span><span>Сценарный инструмент · v2.0</span></footer>
+        <footer className="site-footer"><span>© 2025 FloCast · Команда Not Found · Калининградская агломерация</span><span>Сценарный инструмент · v2.0</span></footer>
       </div>
     </div>
   )

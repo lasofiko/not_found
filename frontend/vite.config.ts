@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'Прогноз грузовых перевозок',
-        short_name: 'Прогноз NF',
-        description: 'Сценарный прогноз грузовых перевозок Калининградской агломерации',
+        name: 'FloCast',
+        short_name: 'FloCast',
+        description: 'FloCast — сценарный прогноз грузовых перевозок Калининградской агломерации, команда Not Found',
         theme_color: '#030C1B',
         background_color: '#030C1B',
         display: 'standalone',

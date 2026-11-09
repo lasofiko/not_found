@@ -1,4 +1,6 @@
-# React + TypeScript + Vite
+# FloCast — Frontend
+
+Интерфейс продукта FloCast команды Not Found. Стек: React + TypeScript + Vite.
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
