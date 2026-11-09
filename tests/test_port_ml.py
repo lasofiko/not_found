@@ -193,7 +193,7 @@ class PortArtifactTests(unittest.TestCase):
             for invalid in ("2025-12", "2031-01", "2026-13", True, None):
                 with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                     forecast_port(invalid, root=root)
-            pointer = json.loads((root / "models/port/latest.json").read_text())
+            pointer = json.loads((root / "models/port/latest.json").read_text(encoding="utf-8"))
             model = root / pointer["model_path"]
             model.write_bytes(model.read_bytes() + b" ")
             with self.assertRaisesRegex(ValueError, "SHA-256"):

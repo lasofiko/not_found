@@ -102,6 +102,21 @@ Development: прогнозные месяцы январь–июнь 2025, hol
 
 `supplemental_issues.csv`: `dataset,source_id,source_locator,issue,related_locator,details`. `supplemental_quality.json` хранит профили, сверку широких листов/экспорта, пропуски, конфликты и правила. `freight_coverage.csv` содержит оценку покрытия `sea,rail_land,road,air` и ограничения, без искусственных рядов. Факторы без даты исторической доступности остаются кандидатами вне модельного `factors.csv`. HTTP API и строгая схема наблюдений сохраняются.
 
+## Инфраструктурный API v1
+
+Реализованы `GET /api/v1/health`, `GET /api/v1/config`, `GET /api/v1/status`.
+`health.service` возвращает `not-found-backend`.
+Точные схемы, ошибки и предварительные будущие маршруты описаны в
+[`api_contract.md`](api_contract.md). `config.supported` описывает проектные
+возможности, а `config.available` — доступные сейчас аналитические функции.
+`status` сообщает состояние подключений; `health` проверяет только сервер.
+
+В публичном справочнике интерфейса значение `rail` означает выбор
+железнодорожного транспорта. Нормализованный код наблюдений остаётся
+`rail_land`; преобразование для будущего API данных требуется согласовать
+перед его реализацией. `all` — фильтр по доступным видам, не отдельный вид
+наблюдения. На данном этапе транспортные показатели не публикуются.
+
 ## Таблица наблюдений
 
 UTF-8 CSV, одна строка на период × OD × направление × вид × группу. Обязательные поля:
@@ -156,7 +171,9 @@ UTF-8 CSV, одна строка на период × OD × направлени
 
 ## Сценарный API
 
-`POST /api/v1/scenarios/capacity` принимает `demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes` (конечные неотрицательные числа, один и тот же период), `period`, `assumption_source`. Возвращает `baseline_shortfall_tonnes`, `scenario_capacity_tonnes`, `scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`, `scenario_spare_capacity_tonnes` (добавлено в v0.6), `status: scenario` и предупреждение. Некорректные числа и переполнение суммы возвращают HTTP 422. Расчёт общий с отчётом чувствительности. Это чувствительность к входным параметрам, не прогноз и не эффект утверждённой инвестиции.
+`POST /api/v1/scenarios/capacity` принимает `demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes` (конечные неотрицательные числа в диапазоне float64, один и тот же период), `period`, `assumption_source`. Сумма `capacity_tonnes + capacity_delta_tonnes` также должна быть конечной. `period` — строго `YYYY` или `YYYY-MM`: годы 0001–9999, месяцы 01–12, как в проверке календаря `pipeline.validate`. Нарушение этих ограничений возвращает HTTP 422 в общем формате ошибок API. Ответ содержит `baseline_shortfall_tonnes`, `scenario_capacity_tonnes`, `scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`, `scenario_spare_capacity_tonnes`, `status: scenario` и предупреждение. Новое поле `scenario_spare_capacity_tonnes = max(0, capacity_tonnes + capacity_delta_tonnes - demand_tonnes)` показывает запас провозной возможности в тоннах за тот же период; смысл существующих полей сохраняется. Общая функция `backend.scenarios.capacity_balance` используется API и автономным отчётом чувствительности. Это чувствительность к входным параметрам, не прогноз и не эффект утверждённой инвестиции.
+
+Страница получает базовый URL API из `GET /config.json` при совместном размещении; ответ `{"apiBase":"/api/v1"}` отражает фактический `BB_API_PREFIX`. При отдельном размещении frontend читает свой `config.json` той же схемы, где `apiBase` — абсолютный HTTP(S) URL backend с префиксом API. Для запросов с другого origin его нужно добавить в `BB_CORS_ORIGINS`. Отсутствие или ошибка загрузки конфигурации блокирует расчёт и показывается пользователю.
 
 Будущий результат прогноза должен включать `data_version`, `model_version`, `scenario_id`, `generated_at`, `geography`, `direction`, `cargo_group`, `mode`, `period`, `metric`, `value`, `unit`, `interval`, `provenance`, `warnings`. Схема будет уточнена ML Lead и Fullstack до интеграции.
 

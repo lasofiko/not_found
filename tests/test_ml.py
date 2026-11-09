@@ -12,7 +12,7 @@ from ml.models import fit_model, predict
 from ml.predict import forecast, load_artifact
 from ml.run import run
 from pipeline.build import build
-from test_pipeline import test_registry as make_registry
+from test_pipeline import make_registry
 
 
 def synthetic_series(values=None):
@@ -199,6 +199,6 @@ class ArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Модель отсутствует"):
                 forecast(root=root)
             (root / "models").mkdir()
-            (root / "models/latest.json").write_text(json.dumps({"model_path": "../outside.json"}))
+            (root / "models/latest.json").write_text(json.dumps({"model_path": "../outside.json"}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "выходит"):
                 load_artifact(root)

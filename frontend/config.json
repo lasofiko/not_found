@@ -1,5 +1,3 @@
 {
-  "apiBase": "/api/v1",
-  "displayUnit": "tonnes",
-  "locale": "ru-RU"
+  "apiBase": "/api/v1"
 }

@@ -1,12 +1,11 @@
 """Баланс заданной нагрузки и провозной возможности за один период."""
+
 import math
 
 
-def capacity_balance(*, demand_tonnes: float, capacity_tonnes: float,
-                     capacity_delta_tonnes: float) -> dict[str, float]:
+def capacity_balance(*, demand_tonnes: float, capacity_tonnes: float, capacity_delta_tonnes: float) -> dict[str, float]:
     inputs = (demand_tonnes, capacity_tonnes, capacity_delta_tonnes)
-    if any(isinstance(v, bool) or not isinstance(v, (int, float))
-           or not math.isfinite(v) or v < 0 for v in inputs):
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in inputs):
         raise ValueError("Нагрузка и провозная возможность должны быть конечными неотрицательными числами.")
     scenario_capacity = capacity_tonnes + capacity_delta_tonnes
     if not math.isfinite(scenario_capacity):
