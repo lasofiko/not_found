@@ -1,4 +1,69 @@
-# Контракты v0.9
+# Контракты v0.10
+
+## Локальная передача Камчатки и Приморья v0.10
+
+`python -m pipeline.far_east --archive FILE.zip` создаёт независимый комплект
+`data/processed/far_east/`. Фильтр территорий — только Камчатский край,
+Камчатская область (историческая территория, с предупреждением) и Приморский край.
+Чукотка и остальные территории исключаются из результирующих данных, в том числе
+из смешанных книг. Исходный ZIP остаётся неизменным и может содержать исключённые территории.
+Существующий Калининградский комплект, его реестр, цели и модели не переписываются.
+
+`transport_long.csv` и `regional_indicators.csv` используют поля:
+`series_id,region,original_geography,geography_code,period,period_granularity,period_start,period_end,
+period_basis,mode,direction,origin,destination,cargo_group,metric,indicator_code,indicator_name,
+original_value,original_unit,value,unit,conversion_factor,status,evidence_status,source_id,
+source_locator,source_title,available_at,quality_flags,quality_note,review_status,data_version`.
+`transport_long` содержит только грузовые показатели; `regional_indicators` — также
+пассажирские и экономические показатели. Масса, транспортная работа и деньги
+различаются по `metric`/`unit`. `direction`, OD и `available_at` пусты, если не доказаны.
+`period_basis`: `annual`, `monthly`, `year_to_date`, `quarter`.
+Накопление не становится месячным наблюдением. Статус `observed` описывает число
+в предоставленной таблице; `evidence_status: provided_unverified` и `review_status: pending`
+явно показывают отсутствие сверки с первичной публикацией. Выбор цели остаётся открытым.
+Разные издания и исходные территории входят в ключ ряда и автоматически не склеиваются.
+
+`freight_annual_panel.csv` — удобный широкий вид **только предоставленного**
+`perevozki_kamchatka_primorye_2001_2024.csv`: `region,year,road_freight_tonnes,
+road_freight_turnover_tonne_km,rail_dispatch_tonnes,source_id,status,evidence_status,
+review_status,data_version`. Для каждого из трёх показателей дополнительно
+сохраняются суффиксы `_source_title`, `_source_locator`, `_quality_flags`.
+Пустая ячейка остаётся пустой. Издания показаны по ячейкам; это разворот
+пользовательской выборки, не согласование её методологической склейки.
+
+`customs_long.csv`: `series_id,region,original_geography,trade_flow,partner_scope,cargo_code,
+cargo_group,aggregation_level,period,period_granularity,period_start,period_end,period_basis,
+metric,original_value,original_unit,value,unit,conversion_factor,status,evidence_status,
+source_id,source_locator,quality_flags,review_status,data_version`.
+`trade_flow`: `export|import`; это внешняя торговля, не `inbound/outbound`
+внутреннего коридора. Вес из явно подписанного столбца «Вес, тонн» не смешивается
+с количеством в дополнительных единицах. Стоимость в тыс. долларов переводится
+в USD, без рублёвого эквивалента. Товарные коды, подгруппы, итоги и группы стран
+не аддитивны. Автоматическая нормализация применяется только к распознанным
+заголовкам; прочие таблицы доступны в CSV для предметного разбора.
+
+`table_rows.csv` объединяет отобранные строки Excel без потери структуры:
+`source_id,sheet,source_row,region,row_kind,column_001,...`.
+`row_kind: header|data`; номера строк и столбцов соответствуют оригиналу.
+Отдельный CSV каждого непустого отобранного листа находится в `tables/`.
+Это техническая конверсия, не готовые обучающие признаки.
+`table_catalog.csv` связывает CSV с оригиналом, листом, числом отобранных строк,
+статусом распознавания и причиной исключения. `archive_inventory.csv` учитывает
+каждое вложение ZIP, включая исключённые и повторные байты; одинаковые SHA-256
+обрабатываются один раз. `source_registry.json` внутри комплекта хранит паспорта,
+SHA-256, оригинальные пути и связи с ZIP/RAR. Вложенные CSV RAR фильтруются по
+`object_name`, все остальные географии исключаются.
+
+`series_coverage.csv` описывает диапазон и разрывы каждого отдельного ряда,
+пропуски значений и число уникальных периодов. `row_issues.csv` содержит
+нечисловые коды и повторные/конфликтующие ключи; значения конфликтов сохраняются.
+`quality_report.json`, `manifest.json` фиксируют ограничения, хеши входов/выходов
+и кода, версии зависимостей, статус человеческой проверки `pending`.
+Код `-88888888` (включая десятичную запись) также сохраняется как нерасшифрованный
+специальный код с пустым `value`; значения служебных кодов не умножаются на масштаб.
+`--verify` проверяет хеши, ссылки на источники, фильтр территорий, календарь,
+пересчёт единиц и покрытие; `--package` создаёт локальный ZIP передачи с оригиналом,
+кодом, инструкцией и результатами. Передача не запускает обучение и не публикует данные.
 
 ## Дополнительные источники из реестра DOCX v0.9
 

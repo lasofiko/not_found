@@ -1,5 +1,26 @@
 # Данные
 
+**Локальный комплект CSV для ML-инженера, исключённый из Git:**
+[data/ml_handoff/README.md](ml_handoff/README.md). Там находятся полные копии
+подготовленных таблиц Калининграда, Камчатки и Приморья; большие CSV разбиты
+на части до 8 МиБ без потери строк. Каталог — `ml_handoff/inventory.csv`.
+Проверка без оригиналов: `python -m pipeline.ml_handoff --verify`.
+`ml_handoff`, `raw`, `interim` и `processed` не добавляются в Git.
+Для передачи всех обработанных данных одним ZIP с исходными именами CSV:
+`python -m pipeline.ml_handoff --package`. Архив — в `reports/generated/`.
+
+Новый отдельный Калининградский архив: `python -m pipeline.kaliningrad_additional --archive FILE.zip`.
+Результаты — `processed/kaliningrad_additional/`, оригиналы — `raw/kaliningrad_additional/`.
+Проверка и ZIP передачи: `python -m pipeline.kaliningrad_additional --verify --package`.
+Общая таможенная таблица — `customs_long.csv`; [инструкция и ограничения](../docs/kaliningrad-additional-handoff.md).
+
+Камчатка и Приморье обрабатываются отдельно: `python -m pipeline.far_east --archive FILE.zip`.
+Результаты — `processed/far_east/`, паспорта — `processed/far_east/source_registry.json`,
+оригиналы — `raw/far_east/`. Чукотка исключается по имени вложения и географии
+внутри смешанных таблиц. Проверка и передача: `python -m pipeline.far_east --verify --package`.
+Основной файл — `transport_long.csv`, годовая матрица — `freight_annual_panel.csv`.
+Инструкция и ограничения: [передача ML-инженеру](../docs/far-east-handoff.md).
+
 Дополнительные источники из DOCX: `python3 -m pipeline.acquire_list`, затем `python3 -m pipeline.build --available-only` и `python3 -m pipeline.verify`. Оценка пригодности каждого источника — [new-datasets-assessment.md](../docs/new-datasets-assessment.md), машинная таблица — `processed/new_source_assessment.csv`, покрытие — `processed/extended_coverage.csv`. Новые ряды БЖД, Храброво, погоды, региональной статистики и счётчиков границы хранятся отдельно от принятия цели; модель автоматически не меняется. Документ со ссылками сохранён как оригинал и связан с найденными источниками.
 
 Для повторного извлечения PDF/OSM нужны версии из `requirements-data-lock.txt`. Установка с сетью: `python3 -m pip install -r data/requirements-data-lock.txt`. Внутренний архив включает wheel для Python 3.14/Linux x86_64; офлайн: `python3 -m pip install --no-index --find-links data/raw/runtime_wheels -r data/requirements-data-lock.txt`. Для другой платформы следует получить совместимые wheel тех же версий.

@@ -81,6 +81,30 @@ python -m ml.line_experiment
 
 ## Подготовка данных
 
+**Локальный комплект CSV по трём регионам для ML-инженера:**
+[data/ml_handoff/README.md](data/ml_handoff/README.md), полный каталог —
+`data/ml_handoff/inventory.csv`. В локальной копии большие CSV разбиты на части до 8 МиБ;
+чтение и восстановление не требуют исходных архивов. Проверка:
+`python -m pipeline.ml_handoff --verify`. Комплект и обработанные данные
+исключены из Git. Единый ZIP со всеми файлами `data/processed/`, паспортами
+и инструкцией: `python -m pipeline.ml_handoff --package`.
+
+Дополнительный архив **«калиниград доп.zip»** обрабатывается отдельно:
+`python -m pipeline.kaliningrad_additional --archive "калиниград доп.zip"`,
+затем `python -m pipeline.kaliningrad_additional --verify --package`.
+CSV — в `data/processed/kaliningrad_additional/`, основной — `customs_long.csv`.
+Это таможенная внешняя торговля, не автоматически тоннаж внутреннего коридора.
+Существующие данные не переписываются. [Инструкция передачи](docs/kaliningrad-additional-handoff.md).
+
+Отдельный пользовательский комплект **Камчатки и Приморья** (без Чукотки):
+`python -m pipeline.far_east --archive "данные камчатка + дальний востокъ (2).zip"`,
+затем `python -m pipeline.far_east --verify` и `python -m pipeline.far_east --package`.
+Нужны зависимости `[data]` и системная libarchive для вложенного RAR.
+Основной объединённый CSV — `data/processed/far_east/transport_long.csv`.
+Отдельно сохраняются внешняя торговля, экономический контекст и CSV листов.
+Инструкция и ограничения: [передача ML-инженеру](docs/far-east-handoff.md).
+Калининградская цель и модели не меняются.
+
 Реестр оригиналов: [data/source_registry.json](data/source_registry.json). Каталог из Google-таблицы: [data/source_catalog.csv](data/source_catalog.csv). Исследуется **весь грузовой коридор по четырём видам транспорта**. Полного сопоставимого целевого ряда пока нет.
 
 Для присланных файлов в `data/incoming/` (экспортные XLSX, транзитный XLS, объединённый Excel и два ZIP), с активным Python 3.11+ окружением:
