@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Балтийский баланс — чувствительность к параметрам</title>
+<style>
+:root{--ink:#17343c;--muted:#546c72;--paper:#f5f7f6;--line:#dce4e2;--teal:#127d79;--orange:#be592f;--blue:#356b9a}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+main{max-width:1280px;margin:auto;padding:32px 24px 56px}h1{font-size:clamp(28px,4vw,43px);line-height:1.15;margin:15px 0}
+h2{font-size:21px;line-height:1.3;margin:0 0 12px}h3{font-size:17px;margin:16px 0 8px}p{margin:8px 0 16px}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);font-weight:750}
+.muted,small{color:var(--muted)}.lead{max-width:900px;font-size:18px}.badge{display:inline-block;background:#e1efeb;color:#165b51;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:700}
+.notice{padding:14px 18px;border-left:4px solid var(--orange);background:#fff2e9;border-radius:4px;margin:20px 0}
+.layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;align-items:start}
+.panel{background:white;border:1px solid var(--line);border-radius:12px;padding:22px;min-width:0}.controls{position:sticky;top:16px}
+label{display:block;font-weight:650;margin:16px 0 6px}select{font:inherit;color:inherit;width:100%;padding:9px;background:white;border:1px solid #aabdb9;border-radius:6px}
+input[type=range]{width:100%;accent-color:var(--teal);cursor:pointer;margin:10px 0 4px}
+.slider-head{display:flex;justify-content:space-between;align-items:baseline;gap:6px}.slider-head label{margin-bottom:0}
+output{font-weight:750;color:var(--teal);white-space:nowrap}.tonnes{font-size:14px;color:var(--muted);min-height:22px}
+button,.button{font:inherit;cursor:pointer;background:white;color:var(--ink);border:1px solid #aabdb9;border-radius:6px;padding:8px 12px;text-decoration:none}
+button:hover,.button:hover{background:#edf5f2}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #356b9a;outline-offset:3px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}.reference{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.reference strong{display:block;color:var(--blue);font-size:26px}.reference p{font-size:13px;margin:6px 0}
+.results{display:grid;gap:20px;min-width:0}.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.kpi{background:white;border:1px solid var(--line);border-radius:12px;padding:17px}.kpi span{display:block;font-size:13px;color:var(--muted)}
+.kpi strong{font-size:clamp(24px,3vw,33px);line-height:1.4}.kpi.after{border-color:#79a99c;background:#edf6f1}
+.kpi.before strong{color:var(--orange)}.kpi small{display:block;font-size:12px}.interpretation{font-size:17px;margin:0}
+.bar-row{display:grid;grid-template-columns:170px minmax(0,1fr) 112px;align-items:center;gap:12px;margin:14px 0;font-size:13px}
+.bar-track{height:20px;background:#f0f3f2;border-radius:3px;overflow:hidden}.bar{height:100%;transition:width .15s;border-radius:3px}
+.legend{display:flex;flex-wrap:wrap;gap:18px;font-size:13px;margin-bottom:6px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+svg{width:100%;height:auto;display:block}svg text{font-family:system-ui,sans-serif;fill:var(--muted)}
+.scroll{overflow-x:auto}.matrix{display:grid;gap:5px;min-width:600px}.matrix .axis{font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:center;padding:4px}
+.matrix button{font-size:12px;border:1px solid transparent;padding:7px 2px;font-variant-numeric:tabular-nums;border-radius:4px}
+.matrix button.selected{outline:3px solid var(--ink);outline-offset:-2px;font-weight:800}
+.matrix button:hover{filter:brightness(.96)}table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:right;border-bottom:1px solid var(--line);padding:11px 8px;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:600;font-size:12px}
+.notes{margin-top:24px}.notes li{margin:8px 0}.meta{font-size:12px;overflow-wrap:anywhere;margin-top:16px}
+details summary{cursor:pointer;font-weight:650}details p{margin-top:12px}.formula{background:#f2f5f4;padding:12px;border-radius:6px;font-size:14px}
+footer{color:var(--muted);font-size:13px;padding-top:24px}.print-title{display:none}
+@media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}.controls{position:static}.bar-row{grid-template-columns:120px minmax(0,1fr) 95px;gap:6px}main{padding:20px 14px}.panel{padding:17px}}
+@media print{body{background:white}main{padding:0}.layout{display:block}.controls{position:static}.panel,.kpi{break-inside:avoid}.actions{display:none}.results{margin-top:18px}.print-title{display:block}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">Балтийский баланс · паромная линия</div>
+<h1>Как ваши параметры меняют результат</h1>
+<p class="lead">Выберите нагрузку и провозную возможность. Посмотрите, сколько заданного груза остаётся без покрытия и когда увеличение возможности перестаёт сокращать дефицит.</p>
+<span class="badge">Сценарный расчёт</span> <span class="muted">Усть-Луга ↔ Калининград · направления отдельно · тонны за год</span>
+</header>
+<div class="notice"><strong>Параметры здесь — ваши допущения.</strong> Базовый ML-прогноз используется как масштаб для процентов. Он описывает перевезённую массу; фактическая потребность и мощность по этой истории не измерены. Регуляторы меняют сценарный баланс.</div>
+<noscript><p class="notice">Для регуляторов включите JavaScript. Все расчёты также доступны в <a href="sensitivity.csv">CSV</a>.</p></noscript>
+<div class="layout">
+<aside class="panel controls" aria-label="Сценарные параметры">
+<h2>Задайте условия</h2>
+<label for="direction">Направление</label>
+<select id="direction"><option value="inbound">В область: Усть-Луга → Калининград</option><option value="outbound">Из области: Калининград → Усть-Луга</option></select>
+<label for="period">Год</label><select id="period"></select>
+<div class="slider-head"><label for="demand">Требуемая нагрузка</label><output id="demand-value" for="demand"></output></div>
+<input id="demand" type="range" min="60" max="180" step="10" aria-describedby="demand-tonnes">
+<div id="demand-tonnes" class="tonnes"></div>
+<div class="slider-head"><label for="capacity">Исходная возможность</label><output id="capacity-value" for="capacity"></output></div>
+<input id="capacity" type="range" min="60" max="160" step="10" aria-describedby="capacity-tonnes">
+<div id="capacity-tonnes" class="tonnes"></div>
+<div class="slider-head"><label for="delta">Увеличение возможности</label><output id="delta-value" for="delta"></output></div>
+<input id="delta" type="range" min="0" max="60" step="10" aria-describedby="delta-tonnes">
+<div id="delta-tonnes" class="tonnes"></div>
+<p class="muted" style="font-size:13px;margin-top:14px">Все проценты — от базового прогноза выбранного направления и года. Например, 120% нагрузки означает 1,2 его объёма. Это не годовой темп роста. Шаг регуляторов — 10 процентных пунктов.</p>
+<div class="actions"><button id="reset" type="button">Сбросить</button><button id="export" type="button">Сохранить расчёт</button></div>
+<div class="reference"><span class="badge" style="background:#e6eef7;color:#356b9a">Базовый ML-прогноз</span><strong id="forecast-value"></strong><p id="forecast-meta"></p><p id="forecast-interval"></p><p id="forecast-error"></p><p>Этот прогноз остаётся прежним при изменении трёх регуляторов.</p></div>
+</aside>
+<section class="results" aria-label="Результаты">
+<div class="kpis" aria-live="polite">
+<div class="kpi before"><span>Непокрытая нагрузка до изменения</span><strong id="gap-before"></strong><small>Разница нагрузки и исходной возможности</small></div>
+<div class="kpi after"><span>Непокрытая нагрузка после изменения</span><strong id="gap-after"></strong><small id="gap-after-note"></small></div>
+<div class="kpi"><span>Сокращение непокрытой нагрузки</span><strong id="reduction"></strong><small>Расчётное покрытие дополнительных тонн</small></div>
+<div class="kpi"><span>Запас возможности после изменения</span><strong id="spare"></strong><small>Возможность сверх заданной нагрузки</small></div>
+</div>
+<section class="panel">
+<h2>Нагрузка и возможность в одном масштабе</h2>
+<p id="interpretation" class="interpretation"></p>
+<div class="bar-row"><span>Требуемая нагрузка</span><div class="bar-track"><div id="bar-demand" class="bar" style="background:#be592f"></div></div><strong id="bar-demand-value"></strong></div>
+<div class="bar-row"><span>Возможность до</span><div class="bar-track"><div id="bar-capacity" class="bar" style="background:#a3b6b4"></div></div><strong id="bar-capacity-value"></strong></div>
+<div class="bar-row"><span>Возможность после</span><div class="bar-track"><div id="bar-total" class="bar" style="background:#127d79"></div></div><strong id="bar-total-value"></strong></div>
+<small>Единица: т за выбранный год. Провозная возможность не равна фактически перевезённому грузу.</small>
+</section>
+<section class="panel">
+<h2>Если менять только нагрузку</h2>
+<p class="muted">Исходная возможность и её увеличение зафиксированы вашими регуляторами. Точка отмечает выбранную нагрузку.</p>
+<div class="legend"><span><i class="dot" style="background:#be592f"></i>Дефицит до изменения</span><span><i class="dot" style="background:#127d79"></i>Дефицит после изменения</span></div>
+<svg id="sensitivity-chart" viewBox="0 0 760 270" role="img" aria-label="Непокрытая нагрузка при разных уровнях требуемого объёма"></svg>
+</section>
+<section class="panel">
+<h2>Сочетания нагрузки и увеличения возможности</h2>
+<p class="muted">Ячейка — непокрытая нагрузка <strong>после изменения, тыс. т за год</strong>. Зелёный цвет означает, что заданная нагрузка покрыта. Нажмите ячейку, чтобы выбрать сочетание.</p>
+<div class="scroll"><div id="matrix" class="matrix" role="group" aria-label="Карта непокрытой нагрузки"></div></div>
+<small>Строки: нагрузка, % от базового прогноза. Столбцы: увеличение возможности, % от того же прогноза. Исходная возможность фиксирована текущим регулятором.</small>
+</section>
+</section>
+</div>
+<section class="panel notes">
+<h2>Четыре условных примера: что означает результат</h2>
+<p class="muted">Примеры заданы вручную для объяснения механизма. Это отдельные сценарии в тоннах за год, без привязки к фактической мощности линии.</p>
+<div class="scroll"><table><thead><tr><th>Пример</th><th>Нагрузка, т</th><th>Возможность до, т</th><th>Прибавка, т</th><th>Дефицит после, т</th><th>Снятый дефицит, т</th><th>Запас, т</th></tr></thead><tbody id="examples"></tbody></table></div>
+<p style="margin-top:14px">После покрытия всей заданной нагрузки новая возможность увеличивает запас. Дополнительный перевезённый объём зависит от наличия груза и операционных ограничений; этот расчёт их не устанавливает.</p>
+</section>
+<section class="panel notes">
+<h2>Почему для ML здесь девять наблюдений на направление</h2>
+<p>В исходном целевом CSV 19 строк: заголовок и 18 годовых наблюдений за 2015–2023. Они образуют два отдельных ряда по девять точек. Названия источника, маршрута и единицы описывают наблюдение; новых обучающих примеров они не добавляют.</p>
+<p>Сравнивались три простых метода: последнее известное значение, продолжение среднего изменения и экспоненциальное сглаживание. Выбор сделан на проверках 2020–2021; отдельная проверка — 2022–2023. Проверен прогноз на один год. Точность до 2030 и причинное влияние числа паромов, тарифа или мощности на перевозки этой проверкой не установлены.</p>
+<details><summary>Формулы, границы применения и происхождение</summary>
+<p class="formula">Нагрузка D = прогноз × процент нагрузки / 100.<br>Возможность после = исходная возможность C + заданная прибавка ΔC.<br>Дефицит до = max(0, D − C).<br>Дефицит после = max(0, D − C − ΔC).<br>Снятый дефицит = дефицит до − дефицит после.<br>Запас = max(0, C + ΔC − D).</p>
+<ul id="warnings"></ul>
+<p>Охват: морское пересечение указанной паромной линии. Подвоз, терминальные операции и доставка до получателя отдельно не рассчитываются. Вагон на пароме повторно как сухопутная перевозка не добавляется. Стоимость, число судов и экологический эффект требуют отдельных входов и методики.</p>
+<p>Проценты для двух направлений задают независимые тестовые условия. Возможность общего флота одновременно обслужить оба направления не проверяется.</p>
+<p id="source-info"></p><p id="versions" class="meta"></p>
+</details>
+<div class="actions"><a class="button" href="sensitivity.csv" download>Все сочетания · CSV</a><a class="button" href="sensitivity.json" download>Данные отчёта · JSON</a><button id="print" type="button">Печать / PDF</button></div>
+</section>
+<footer>ИИ подготовил код и автоматические проверки. Человеческая проверка источников и сценарных допущений ожидается. Отчёт работает офлайн; расчётные значения подготовлены в Python.</footer>
+</main>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+"use strict";
+const report = JSON.parse(document.getElementById("report-data").textContent);
+const el = id => document.getElementById(id);
+const number = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 0});
+const decimal = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1});
+const tonnes = value => number.format(value) + " т";
+const state = {...report.defaults};
+let cacheKey = "", rowsByKey = new Map();
+function context() {
+  const key = state.direction + "|" + state.period;
+  if (cacheKey !== key) {
+    rowsByKey = new Map(report.grids[state.direction][state.period].map(values => {
+      const row = Object.fromEntries(report.fields.map((field, i) => [field, values[i]]));
+      return [values.slice(0, 3).join("|"), row];
+    }));
+    cacheKey = key;
+  }
+}
+function lookup(demand, capacity, delta) {return rowsByKey.get([demand, capacity, delta].join("|"));}
+function selectedRow() {return lookup(state.demand_pct, state.capacity_pct, state.capacity_delta_pct);}
+function setText(id, value) {el(id).textContent = value;}
+function svgNode(name, attrs, text) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function drawChart() {
+  const svg = el("sensitivity-chart");
+  svg.replaceChildren();
+  const rows = report.axes.demand_pct.map(d => lookup(d, state.capacity_pct, state.capacity_delta_pct));
+  const max = Math.max(1, ...rows.map(r => r.baseline_shortfall_tonnes));
+  const x = i => 70 + i * 660 / (rows.length - 1), y = v => 218 - v / max * 172;
+  for (let i = 0; i <= 4; i++) {
+    const value = max * i / 4, at = y(value);
+    svg.append(svgNode("line", {x1:70,x2:730,y1:at,y2:at,stroke:"#dce4e2"}));
+    svg.append(svgNode("text", {x:60,y:at+4,"text-anchor":"end","font-size":12}, decimal.format(value/1000)));
+  }
+  rows.forEach((r, i) => {
+    if (i % 2 === 0) svg.append(svgNode("text", {x:x(i),y:239,"text-anchor":"middle","font-size":12}, r.demand_pct + "%"));
+  });
+  svg.append(svgNode("text", {x:70,y:22,"font-size":12}, "Непокрытая нагрузка, тыс. т за год"));
+  svg.append(svgNode("text", {x:400,y:264,"text-anchor":"middle","font-size":12}, "Нагрузка относительно базового прогноза"));
+  const chosen = report.axes.demand_pct.indexOf(state.demand_pct);
+  svg.append(svgNode("line", {x1:x(chosen),x2:x(chosen),y1:36,y2:218,stroke:"#879c9b","stroke-dasharray":"4 4"}));
+  [["baseline_shortfall_tonnes","#be592f"],["scenario_shortfall_tonnes","#127d79"]].forEach(([field,color]) => {
+    svg.append(svgNode("polyline", {points:rows.map((r,i) => x(i)+","+y(r[field])).join(" "),fill:"none",stroke:color,"stroke-width":3}));
+    const dot = svgNode("circle", {cx:x(chosen),cy:y(rows[chosen][field]),r:5,fill:color,stroke:"white","stroke-width":2});
+    dot.append(svgNode("title", {}, tonnes(rows[chosen][field])));
+    svg.append(dot);
+  });
+}
+function drawMatrix() {
+  const matrix = el("matrix");
+  matrix.replaceChildren();
+  matrix.style.gridTemplateColumns = "65px repeat(" + report.axes.capacity_delta_pct.length + ", minmax(65px,1fr))";
+  function axis(text) {const node=document.createElement("div");node.className="axis";node.textContent=text;matrix.append(node);}
+  axis("D / ΔC");
+  report.axes.capacity_delta_pct.forEach(d => axis("+" + d + "%"));
+  const max = Math.max(1, ...report.axes.demand_pct.flatMap(d => report.axes.capacity_delta_pct.map(delta =>
+    lookup(d, state.capacity_pct, delta).scenario_shortfall_tonnes)));
+  report.axes.demand_pct.forEach(d => {
+    axis(d + "%");
+    report.axes.capacity_delta_pct.forEach(delta => {
+      const row = lookup(d, state.capacity_pct, delta), button = document.createElement("button");
+      button.type="button";
+      button.textContent=decimal.format(row.scenario_shortfall_tonnes/1000);
+      button.style.background = row.scenario_shortfall_tonnes === 0 ? "#e0f1e9" :
+        "hsl(23 75% " + (95 - 24 * row.scenario_shortfall_tonnes / max) + "%)";
+      const selected = d === state.demand_pct && delta === state.capacity_delta_pct;
+      button.className = selected ? "selected" : "";
+      button.setAttribute("aria-pressed", String(selected));
+      button.setAttribute("aria-label", "Нагрузка " + d + "%, прибавка " + delta + "%: непокрыто " + tonnes(row.scenario_shortfall_tonnes));
+      button.title=button.getAttribute("aria-label");
+      button.addEventListener("click", () => {state.demand_pct=d;state.capacity_delta_pct=delta;render();});
+      matrix.append(button);
+    });
+  });
+}
+function render() {
+  context();
+  const row = selectedRow(), response = report.forecasts[state.direction];
+  const point = response.predictions.find(p => p.period === state.period);
+  el("direction").value=state.direction;el("period").value=state.period;
+  [["demand","demand_pct","demand_tonnes"],["capacity","capacity_pct","capacity_tonnes"],["delta","capacity_delta_pct","capacity_delta_tonnes"]].forEach(([id,pct,mass]) => {
+    el(id).value=state[pct];setText(id+"-value", state[pct]+"%");setText(id+"-tonnes", tonnes(row[mass])+" за "+state.period+" год");
+    el(id).setAttribute("aria-valuetext", state[pct]+"%, "+tonnes(row[mass])+" за год");
+  });
+  setText("forecast-value", tonnes(point.value) + " / год");
+  setText("forecast-meta", "Метод: " + response.selected_model + " · 9 годовых наблюдений · последний факт: 2023");
+  setText("forecast-interval", "Условный модельный интервал 95%: " + tonnes(point.interval["95"].lower) + " — " + tonnes(point.interval["95"].upper));
+  const metric = report.metrics[state.direction][response.selected_model].holdout;
+  setText("forecast-error", "Ошибка WAPE на 2022–2023: " + (metric.WAPE === null ? "не определена" : decimal.format(metric.WAPE) + "%") + " · всего " + metric.observations + " проверки.");
+  setText("gap-before", tonnes(row.baseline_shortfall_tonnes));
+  setText("gap-after", tonnes(row.scenario_shortfall_tonnes));
+  setText("gap-after-note", row.scenario_shortfall_tonnes > 0 ? "Для заданной нагрузки возможности пока недостаточно" : "Заданная нагрузка покрыта");
+  setText("reduction", tonnes(row.shortfall_reduction_tonnes));
+  setText("spare", tonnes(row.scenario_spare_capacity_tonnes));
+  let interpretation;
+  if (row.baseline_shortfall_tonnes === 0) interpretation="Исходной возможности уже достаточно. Прибавка увеличивает запас; снятый дефицит равен нулю.";
+  else if (row.scenario_shortfall_tonnes > 0) interpretation="После увеличения возможности остаётся непокрыто " + tonnes(row.scenario_shortfall_tonnes) + " заданной нагрузки.";
+  else interpretation="Заданная нагрузка покрыта. Запас возможности составляет " + tonnes(row.scenario_spare_capacity_tonnes) + ".";
+  setText("interpretation", interpretation);
+  const maximum = Math.max(1,row.demand_tonnes,row.scenario_capacity_tonnes);
+  [["demand","demand_tonnes"],["capacity","capacity_tonnes"],["total","scenario_capacity_tonnes"]].forEach(([id,field]) => {
+    el("bar-"+id).style.width=row[field]/maximum*100+"%";setText("bar-"+id+"-value",tonnes(row[field]));
+  });
+  drawChart();drawMatrix();
+}
+Object.keys(report.grids.inbound).forEach(period => {const option=document.createElement("option");option.value=period;option.textContent=period;el("period").append(option);});
+el("direction").addEventListener("change", event => {state.direction=event.target.value;render();});
+el("period").addEventListener("change", event => {state.period=event.target.value;render();});
+[["demand","demand_pct"],["capacity","capacity_pct"],["delta","capacity_delta_pct"]].forEach(([id,field]) => {
+  el(id).addEventListener("input",event => {state[field]=Number(event.target.value);render();});
+});
+el("reset").addEventListener("click", () => {Object.assign(state,report.defaults);render();});
+el("export").addEventListener("click", () => {
+  const response=report.forecasts[state.direction];
+  const data={status:"scenario",unit:"tonnes",period_granularity:"year",mode:"sea",...state,...selectedRow(),
+    geography:response.geography,assumption_source:report.assumption_source,report_version:report.report_version,
+    data_version:report.data_version,model_version:report.model_version,warnings:report.warnings,human_methodology_review:"pending"};
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  const a=document.createElement("a");a.href=url;a.download="scenario-"+state.direction+"-"+state.period+".json";a.click();
+  setTimeout(() => URL.revokeObjectURL(url),1000);
+});
+el("print").addEventListener("click", () => window.print());
+report.examples.forEach(row => {
+  const tr=document.createElement("tr");
+  ["label","demand_tonnes","capacity_tonnes","capacity_delta_tonnes","scenario_shortfall_tonnes","shortfall_reduction_tonnes","scenario_spare_capacity_tonnes"].forEach(field => {
+    const td=document.createElement("td");td.textContent=field==="label"?row[field]:number.format(row[field]);tr.append(td);
+  });el("examples").append(tr);
+});
+report.warnings.forEach(text => {const li=document.createElement("li");li.textContent=text;el("warnings").append(li);});
+const source=report.forecasts.inbound.provenance.sources[0];
+if(source) {
+  const a=document.createElement("a");a.textContent=source.source_id || "Первичный источник";a.href=source.url || "https://www.rosmorport.ru/filials/spb_serv_freight/";
+  setText("source-info","Источник исторических перевозок: ");el("source-info").append(a);
+}
+setText("versions","Отчёт: "+report.report_version+" · Модель: "+report.model_version+" · Данные: "+report.data_version+" · Создание модели: "+report.model_generated_at+" · Человеческая проверка: ожидается.");
+render();
+</script>
+</body>
+</html>

@@ -15,6 +15,8 @@ from pipeline.extract import Document, catalog, extract_ferry, extract_freight, 
 from pipeline.validate import validate
 from pipeline.tables import prepare_tables
 from pipeline.supplemental import prepare_supplemental
+from pipeline.target_audit import prepare_target_audit
+from pipeline.extended import prepare_extended
 
 CANDIDATE_FIELDS = OBSERVATION_FIELDS + [
     "route_id", "in_wagon_on_ferry", "source_locator", "original_value", "original_unit",
@@ -135,7 +137,7 @@ def audit_report(version: str, artifacts: list[dict], candidate: list[dict], con
         "",
         "## Использование ИИ и проверка человеком",
         "",
-        "ИИ помог найти первоисточник, составить реестр, написать извлечение, проверки и этот отчёт. Сверка кода с опубликованными подписями выполнена ИИ; автоматические проверки и тесты запускаются отдельно. **Проверка человеком ещё не выполнена и не заявляется**. Для приёмки человеку необходимо сверить все 18 ячеек короткого ряда, подтвердить точку учёта направлений и определение массы, разобрать расхождения и подписать выбор цели. До этого набор остаётся кандидатом.",
+        "ИИ помог найти первоисточник, составить реестр, написать извлечение, проверки и этот отчёт. Состояние человеческой сверки ячеек, имена, даты и основания отражены в target-series-passport.md, data-quality-report.md и data/human-review-log.csv. Методологическая приёмка отдельно требует определения массы, охвата операторов, разбора расхождений и решения о выборе цели. До этого набор остаётся кандидатом.",
         "",
         "## Доступность источников",
         "",
@@ -219,6 +221,16 @@ def build(root: Path, *, available_only: bool = False) -> dict:
     fingerprint = {"inputs": sorted(inputs, key=lambda a: a["source_id"]), "code": code, "pipeline_version": PIPELINE_VERSION,
                    "build_scope": "available_only" if available_only else "full", "unavailable_source_ids": sorted(unavailable),
                    "registry_sha256": digest((root / "data/source_registry.json").read_bytes())}
+    fingerprint["review_inputs"] = {p: digest((root / p).read_bytes())
+                                   for p in ("data/human-review-log.csv",) if (root / p).is_file()}
+    fingerprint["handoff_assets"] = {p: digest((root / p).read_bytes()) for p in (
+        "docs/contracts.md", "docs/data-preparation.md", "docs/data-input-guide.md", "data/README.md",
+        "data/examples/observations-template.csv", "data/requirements-data-lock.txt", "pyproject.toml") if (root / p).is_file()}
+    if any(a.get("document_sha256") for a in available):
+        from importlib.metadata import version as dependency_version
+        fingerprint["runtime_versions"] = {p: dependency_version(p) for p in ("PyMuPDF", "osmium", "xlrd")}
+        additional_specs = json.loads((ROOT / "pipeline/additional_sources.json").read_text(encoding="utf-8"))
+        fingerprint["unacquired_source_keys"] = sorted(s["source_key"] for s in additional_specs if s["source_key"] not in latest)
     if "hackathon_catalog" not in latest:
         fingerprint["catalog_sha256"] = digest((root / "data/source_catalog.csv").read_bytes()) if (root / "data/source_catalog.csv").exists() else None
     version = "bb-data-" + digest(json.dumps(fingerprint, sort_keys=True).encode())[:12]
@@ -296,6 +308,8 @@ def build(root: Path, *, available_only: bool = False) -> dict:
     supplemental_outputs, supplemental_quality = prepare_supplemental(
         root, latest, version, table_outputs.get("data/processed/exports_clean.csv", ([], []))[1])
     outputs.update(supplemental_outputs)
+    extended_outputs, extended_quality, extended_report = prepare_extended(root, latest, version, supplemental_outputs)
+    outputs.update(extended_outputs)
     if not candidate and not table_outputs and not supplemental_outputs:
         raise ValueError("Нет доступных данных для обработки; импортируйте оригиналы")
     for path, (fields, rows) in outputs.items():
@@ -311,6 +325,14 @@ def build(root: Path, *, available_only: bool = False) -> dict:
     log.update(build_scope=fingerprint["build_scope"], unavailable_source_ids=sorted(unavailable),
                catalog_status="original_available" if "hackathon_catalog" in latest else "catalog_original_unavailable",
                supplemental=supplemental_quality["rules"])
+    log["target_audit"] = {
+        "source_check": "Каждая строка кандидата сверяется с подписанной второй ячейкой HTML внутри годовой вкладки; несовпадение останавливает сборку.",
+        "coverage": "Годы 2015–2026 × 2 направления × 4 вида; заполненные sea описывают только одну линию.",
+        "human_review": "Журнал вводится человеком; проверяются имя, дата, локатор и SHA; автоматического утверждения цели нет.",
+        "reconciliation": "Опубликованные значения линии и терминала сохранены; разность диагностическая, причины неизвестны.",
+    }
+    if extended_outputs:
+        log["additional_sources"] = extended_quality["rules"]
     if table_quality is not None:
         log["user_tables"] = table_quality["rules"]
         log["user_tables"]["outputs"] = {Path(p).name: len(rows) for p, (_, rows) in table_outputs.items()}
@@ -334,7 +356,7 @@ def build(root: Path, *, available_only: bool = False) -> dict:
                "Копия каталога не считается повторной проверкой Google-таблицы.\n\n"
                "Новые таблицы и диагностика: [качество комплектов](supplemental-quality.md). "
                "Порядок передачи и следующие задачи: [Data Engineer](data-engineer-next-steps.md).\n\n"
-               "ИИ подготовил обработчики и автоматические проверки. Человеческая сверка не заявляется.\n")
+               "ИИ подготовил обработчики и автоматические проверки. Записанное подтверждение ячеек и границы проверки приведены в паспорте цели; методологическая приёмка автоматически не утверждается.\n")
     report_path.write_text(report, encoding="utf-8")
     issues = validate(root / "data/processed/candidate_observations.csv", registry=root / "data/source_registry.json",
                       root=root, corridor=True, require_observations=bool(candidate), observed_only=True,
@@ -351,6 +373,17 @@ def build(root: Path, *, available_only: bool = False) -> dict:
     write_json(root / "data/processed/supplemental_quality.json", supplemental_quality)
     (root / "docs/supplemental-quality.md").write_text(supplemental_report(supplemental_quality), encoding="utf-8")
     paths.extend(["data/processed/supplemental_quality.json", "docs/supplemental-quality.md"])
+    if extended_outputs:
+        write_json(root / "data/processed/extended_quality.json", extended_quality)
+        (root / "docs/new-datasets-assessment.md").write_text(extended_report, encoding="utf-8")
+        paths.extend(["data/processed/extended_quality.json", "docs/new-datasets-assessment.md"])
+    audit_paths = prepare_target_audit(root, version, candidate, context, reconciliation, available, unavailable,
+                                     supplemental_quality=supplemental_quality, table_quality=table_quality)
+    paths.extend(audit_paths)
+    for relative in audit_paths:
+        if relative.endswith(".csv"):
+            with (root / relative).open(encoding="utf-8-sig", newline="") as stream:
+                outputs[relative] = ([], list(csv.DictReader(stream)))
     manifest = {**fingerprint, "data_version": version, "target_selection": "pending",
                 "outputs": {p: digest((root / p).read_bytes()) for p in sorted(paths)},
                 "table_rows": {Path(p).name: len(rows) for p, (_, rows) in outputs.items()},

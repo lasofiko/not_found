@@ -1,14 +1,25 @@
 [target]
-geography = "Kaliningrad Oblast <-> mainland Russia"
+route_id = "ust_luga_kaliningrad_ferry"
+geography = "Паромная линия Усть-Луга — Калининград; не полный коридор"
 unit = "tonnes"
-preferred_granularity = "month"
-last_historical_year = 2026
+granularity = "year"
+mode = "sea"
+directions = ["inbound", "outbound"]
+first_historical_year = 2015
+last_historical_year = 2023
 forecast_end_year = 2030
+scope_status = "experimental_line_demo"
 
 [evaluation]
 strategy = "rolling_origin"
-baseline = "seasonal_naive_or_last_value"
+models = ["naive", "drift", "ses"]
+baseline = "naive"
+development_years = [2020, 2021]
+holdout_years = [2022, 2023]
+selection_metric = "MAE"
 metrics = ["MAE", "WAPE"]
-report_post_2022_separately = true
+tie_break_order = ["naive", "drift", "ses"]
 
-# Параметры обучения утверждаются после выбора проверенного целевого ряда.
+[forecast]
+interval_levels = [80, 95]
+nonnegative = true

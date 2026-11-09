@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PIPELINE_VERSION = "0.4.0"
+PIPELINE_VERSION = "0.6.0"
 OBSERVATION_FIELDS = [
     "period", "period_granularity", "origin", "destination", "direction", "mode",
     "cargo_group", "value_tonnes", "status", "source_id",

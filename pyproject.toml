@@ -11,7 +11,8 @@ dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "pydantic-settings>=2.6
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9", "httpx>=0.27,<1", "ruff>=0.9,<1"]
-data = ["xlrd==2.0.2"]
+data = ["xlrd==2.0.2", "libarchive-c==5.3"]
+ml = ["statsmodels>=0.15,<0.16", "matplotlib>=3.8,<4", "numpy>=1.26,<3"]
 notebooks = [
     "jupyterlab>=4,<5",
     "ipykernel>=6,<8",
