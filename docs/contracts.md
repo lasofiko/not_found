@@ -23,6 +23,7 @@
 ## Инфраструктурный API v1
 
 Реализованы `GET /api/v1/health`, `GET /api/v1/config`, `GET /api/v1/status`.
+`health.service` возвращает `not-found-backend`.
 Точные схемы, ошибки и предварительные будущие маршруты описаны в
 [`api_contract.md`](api_contract.md). `config.supported` описывает проектные
 возможности, а `config.available` — доступные сейчас аналитические функции.
@@ -88,7 +89,9 @@ UTF-8 CSV, одна строка на период × OD × направлени
 
 ## Сценарный API
 
-`POST /api/v1/scenarios/capacity` принимает `demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes` (неотрицательные, один и тот же период), `period`, `assumption_source`. Возвращает `baseline_shortfall_tonnes`, `scenario_capacity_tonnes`, `scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`, `status: scenario` и предупреждение. Это чувствительность к входным параметрам, не прогноз и не эффект утверждённой инвестиции.
+`POST /api/v1/scenarios/capacity` принимает `demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes` (конечные неотрицательные числа в диапазоне float64, один и тот же период), `period`, `assumption_source`. Сумма `capacity_tonnes + capacity_delta_tonnes` также должна быть конечной. `period` — строго `YYYY` или `YYYY-MM`: годы 0001–9999, месяцы 01–12, как в проверке календаря `pipeline.validate`. Нарушение этих ограничений возвращает HTTP 422 в общем формате ошибок API. Ответ содержит `baseline_shortfall_tonnes`, `scenario_capacity_tonnes`, `scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`, `status: scenario` и предупреждение. Это чувствительность к входным параметрам, не прогноз и не эффект утверждённой инвестиции.
+
+Страница получает базовый URL API из `GET /config.json` при совместном размещении; ответ `{"apiBase":"/api/v1"}` отражает фактический `BB_API_PREFIX`. При отдельном размещении frontend читает свой `config.json` той же схемы, где `apiBase` — абсолютный HTTP(S) URL backend с префиксом API. Для запросов с другого origin его нужно добавить в `BB_CORS_ORIGINS`. Отсутствие или ошибка загрузки конфигурации блокирует расчёт и показывается пользователю.
 
 Будущий результат прогноза должен включать `data_version`, `model_version`, `scenario_id`, `generated_at`, `geography`, `direction`, `cargo_group`, `mode`, `period`, `metric`, `value`, `unit`, `interval`, `provenance`, `warnings`. Схема будет уточнена ML Lead и Fullstack до интеграции.
 

@@ -6,7 +6,7 @@
 
 ### `GET /health`
 
-HTTP 200: `{"status":"ok","service":"baltic-balance-backend","api_version":"v1"}`. Проверяет только процесс API; доступность данных и модели определяется по `/status`.
+HTTP 200: `{"status":"ok","service":"not-found-backend","api_version":"v1"}`. Проверяет только процесс API; доступность данных и модели определяется по `/status`.
 
 ### `GET /config`
 
@@ -55,7 +55,11 @@ HTTP 200:
 
 ### Сохранённый `POST /scenarios/capacity`
 
-Принимает `demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes` (числа ≥ 0, одна временная база), `period` (`YYYY` или `YYYY-MM`), `assumption_source` (непустая строка). Возвращает `period`, `unit: tonnes`, `status: scenario`, `assumption_source`, `baseline_shortfall_tonnes`, `scenario_capacity_tonnes`, `scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`, `warning`. Это арифметическая чувствительность по пользовательскому вводу, не прогноз или подтверждённый эффект. Маршрут оставлен для действующего Frontend.
+Принимает `demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes` (конечные числа ≥ 0 в диапазоне float64, одна временная база), `period` (строго `YYYY` или `YYYY-MM`: год 0001–9999, месяц 01–12), `assumption_source` (непустая строка). Сумма двух значений мощности должна оставаться конечной. Неконечное число, переполнение суммы или недопустимый период возвращают HTTP 422 / `VALIDATION_ERROR`, а не результат расчёта. Возвращает `period`, `unit: tonnes`, `status: scenario`, `assumption_source`, `baseline_shortfall_tonnes`, `scenario_capacity_tonnes`, `scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`, `warning`. Это арифметическая чувствительность по пользовательскому вводу, не прогноз или подтверждённый эффект. Маршрут оставлен для действующего Frontend.
+
+### `GET /config.json` для Frontend
+
+При совместном размещении backend возвращает HTTP 200 и JSON `{"apiBase":"/api/v1"}`, где значение соответствует текущему `BB_API_PREFIX`. Это настройка адреса, а не аналитический `GET /api/v1/config`. При отдельном размещении Frontend читает свой файл `config.json` с тем же полем `apiBase`; значение должно быть абсолютным HTTP(S) URL backend с префиксом API, например `http://127.0.0.1:8000/api/v1`. Интерфейс использует этот адрес для `POST /scenarios/capacity` и показывает ошибку, если конфигурация или API недоступны. Отдельный origin добавляется в `BB_CORS_ORIGINS`.
 
 ## Ошибки
 

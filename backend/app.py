@@ -38,6 +38,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def frontend_script() -> FileResponse:
         return FileResponse(FRONTEND / "app.js", media_type="application/javascript")
 
+    @application.get("/app.js", include_in_schema=False)
+    def page_script() -> FileResponse:
+        return FileResponse(FRONTEND / "app.js", media_type="application/javascript")
+
+    @application.get("/config.json", tags=["Frontend"], summary="Получить базовый адрес API для страницы")
+    def frontend_config() -> dict[str, str]:
+        return {"apiBase": config.api_prefix}
+
     return application
 
 
