@@ -4,6 +4,8 @@ import base64
 import os
 from pathlib import Path
 
+from ml.review import NOT_PUBLISHABLE, TERMINAL_MATCH_PERCENT
+
 DIRECTION_LABELS = {"inbound": "В область: Усть-Луга → Калининград", "outbound": "Из области: Калининград → Усть-Луга"}
 
 
@@ -47,9 +49,66 @@ def plot_reports(root: Path, output: Path, artifact: dict, forecasts: dict, back
         plt.close(fig)
 
 
-def model_card(artifact: dict) -> str:
+def _tonnes(value) -> str:
+    return "не определено" if value is None else f"{value:,.0f}".replace(",", " ")
+
+
+def _percent(value) -> str:
+    return "не определено" if value is None else f"{value:+.1f}%"
+
+
+def _comparison_lines(comparison: dict) -> list[str]:
+    lines = ["", "## Сравнение с baseline", "", "Baseline — `naive`, последнее наблюдение. Показатели сравниваются на одних и тех же годах.", ""]
+    for direction, item in comparison.items():
+        holdout, development = item["holdout"], item["development"]
+        if item["selected_is_baseline"]:
+            text = (f"- **{direction}:** выбран сам baseline `naive`. MAE на проверке {_tonnes(holdout['selected_MAE'])} т, "
+                    f"WAPE {_percent(holdout['selected_WAPE']).lstrip('+')}.")
+        else:
+            text = (f"- **{direction}:** выбран `{item['selected_model']}`. На выборе MAE {_tonnes(development['selected_MAE'])} т против "
+                    f"{_tonnes(development['baseline_MAE'])} т у baseline. На проверке {_tonnes(holdout['selected_MAE'])} т против "
+                    f"{_tonnes(holdout['baseline_MAE'])} т.")
+        if item["lowest_holdout_MAE_model"] != item["selected_model"]:
+            text += f" Меньшая MAE на проверке у `{item['lowest_holdout_MAE_model']}`, но по протоколу выбор не меняется."
+        lines.append(text)
+    lines += ["", "Превосходство над baseline не подтверждено: на проверке по две точки на направление.", ""]
+    return lines
+
+
+def _break_lines(break_rows: list[dict]) -> list[str]:
+    lines = ["## Поведение в 2022–2023 годах", "", "Ошибка — прогноз минус факт; отрицательное значение означает занижение. Прогноз каждого года сделан только по предыдущим годам.", "",
+             "| Направление | Год | Факт, т | К прошлому году | Метод | Прогноз, т | Ошибка, т | Ошибка |", "|---|---:|---:|---:|---|---:|---:|---:|"]
+    for row in break_rows:
+        lines.append(f"| {row['direction']} | {row['period']} | {_tonnes(row['actual_tonnes'])} | {_percent(row['change_percent'])} | {row['model_id']} | "
+                     f"{_tonnes(row['predicted_tonnes'])} | {_tonnes(row['error_tonnes'])} | {_percent(row['error_percent'])} |")
+    lines += ["", "Скачок 2022 года совпадает по времени с ограничениями транзита через Литву с лета 2022 года, но этот расчёт причинной связи не доказывает.",
+              "Ошибки 2022 года показывают реакцию методов на перелом, а не обычную точность. 2023 год прогнозировался уже с учётом одного нетипичного года.",
+              "После перелома есть только две годовые точки на направление, поэтому отдельный режим или тренд после 2022 года не оценивается.", ""]
+    return lines
+
+
+def _terminal_lines(terminal_rows: list[dict]) -> list[str]:
+    lines = ["## Внешняя сверка со строкой терминала", ""]
+    if not terminal_rows:
+        return lines + ["Таблицы для сверки в комплекте данных отсутствуют.", ""]
+    lines += ["Сравнивается сумма двух направлений со строкой каботажа терминала. Сверка не участвует в обучении, выборе и метриках.", "",
+              "| Год | Значение линии | Линия, т | Терминал, т | Разность, т | Разность |", "|---:|---|---:|---:|---:|---:|"]
+    labels = {"published_line": "опубликовано", "forecast_sum": "сумма прогноза"}
+    for row in terminal_rows:
+        lines.append(f"| {row['period']} | {labels[row['line_kind']]} | {_tonnes(row['line_tonnes'])} | {_tonnes(row['terminal_tonnes'])} | "
+                     f"{_tonnes(row['difference_tonnes'])} | {_percent(row['difference_percent'])} |")
+    differing = [str(r["period"]) for r in terminal_rows
+                 if r["line_kind"] == "published_line" and abs(r["difference_percent"]) > TERMINAL_MATCH_PERCENT]
+    lines += ["", "Годы, где опубликованная сумма линии отличается от терминала больше чем на 1%: " + (", ".join(differing) or "нет") + ".",
+              "Причина расхождений источником не объяснена. Опубликованные значения не корректировались; разность нельзя трактовать как другую линию, ошибку или тару.", ""]
+    return lines
+
+
+def model_card(artifact: dict, comparison: dict, break_rows: list[dict], terminal_rows: list[dict]) -> str:
     lines = ["# Экспериментальный ML-прогноз паромной линии", "", f"Модель: `{artifact['model_version']}`; данные: `{artifact['data_version']}`.", "",
              "Оба направления отдельно. Девять годовых точек на направление, 2015–2023. Последний факт — 2023; все значения 2024–2030 являются прогнозом.", "",
+             "## Назначение и покрытие", "",
+             "Демонстрация метода на одной паромной линии Усть-Луга — Калининград: опубликованные операции выгрузки и погрузки. Не входят другие линии, железная дорога, автомобильные и авиационные перевозки, группы грузов, месячная разбивка и факты 2024–2026. Цель ожидает решения команды, человеческая сверка не выполнена.", "",
              "## Выбор и проверка", "",
              "Выбор по MAE проверок 2020–2021. При равенстве приоритет naive, drift, ses. На проверках 2022–2023 метод не переназначался. После проверки он обучен на всей истории 2015–2023.", "",
              "| Направление | Метод | Этап | Проверок | MAE, т | WAPE, % | Ошибок подгонки |", "|---|---|---|---:|---:|---:|---:|"]
@@ -61,8 +120,13 @@ def model_card(artifact: dict) -> str:
                 fmt = lambda x: "не определено" if x is None else f"{x:.2f}"
                 label = model_id + (" (выбран)" if model_id == chosen else "")
                 lines.append(f"| {direction} | {label} | {stage} | {metric['observations']} | {fmt(metric['MAE'])} | {fmt(metric['WAPE'])} | {metric['failed_folds']} |")
-    lines += ["", "## Неопределённость и ограничения", ""] + ["- " + w for w in artifact["warnings"]]
-    lines += ["", "Интервалы основаны на нормальных ошибках; параметры оценены по короткой истории. Для naive: σ²·h; для drift: σ²·h·(1+h/(n−1)); для SES: σ²·(1+α²·(h−1)). Дисперсия naive — средний квадрат разностей, drift — центрированные разности с делителем n−2, SES — ошибки одношагового сглаживания с делителем n−2. Ограничение нулём не является калибровкой.", "",
+    lines += ["", "`development` использован для выбора и не является независимым подтверждением. `holdout` не влиял на выбор, но содержит только две проверки на направление."]
+    lines += _comparison_lines(comparison) + _break_lines(break_rows) + _terminal_lines(terminal_rows)
+    lines += ["## Неопределённость и ограничения", ""] + ["- " + w for w in artifact["warnings"]]
+    lines += ["", "Интервалы основаны на нормальных ошибках; параметры оценены по короткой истории. Для naive: σ²·h; для drift: σ²·h·(1+h/(n−1)); для SES: σ²·(1+α²·(h−1)). Дисперсия naive — средний квадрат разностей, drift — центрированные разности с делителем n−2, SES — ошибки одношагового сглаживания с делителем n−2. Ограничение нулём не является калибровкой. Интервалы применимы только при сохранении режима ряда: нормальность ошибок при девяти точках не проверялась, покрытие по двум проверкам оценить нельзя, структурные разрывы не учитываются.", "",
+              "## Какие прогнозы нельзя обоснованно публиковать", ""] + ["- " + item for item in NOT_PUBLISHABLE] + ["",
+              "## Факторы", "", "Годовая модель факторов не использует: признаков с подтверждённым источником, единицей, датой доступности и лагом нет. Будущие значения факторов в прогноз не входят.", "",
+              "## Для паспорта проекта", "", "Метод, обоснование выбора и ограничения — этот файл. Таблица метрик — `metrics.json`. Все проверки — `backtest.csv`. Графики временной проверки — `inbound.png`, `outbound.png`. Подтверждённый горизонт — один год.", "",
               "## Происхождение", ""]
     for source in artifact["provenance"]["sources"]:
         lines.append(f"- `{source['source_id']}`: {source['url']}; SHA-256 `{source['sha256']}`.")
@@ -78,7 +142,7 @@ def html_report(artifact: dict, forecasts: dict, *, image_dir: Path | None = Non
               "<h1>Экспериментальный прогноз паромной линии</h1>",
               f"<p>Модель {esc(artifact['model_version'])}; данные {esc(artifact['data_version'])}. Последний факт — 2023 год.</p><ul>"]
     chunks += ["<li>" + esc(w) + "</li>" for w in artifact["warnings"]]
-    chunks.append("</ul><p>Подробный протокол и метрики: <a href='model_card.md'>карточка модели</a>; <a href='backtest_predictions.csv'>все проверочные прогнозы</a>; <a href='metrics.json'>метрики JSON</a>.</p>")
+    chunks.append("</ul><p>Подробный протокол и метрики: <a href='model-card.md'>карточка модели</a>; <a href='backtest.csv'>все проверочные прогнозы</a>; <a href='metrics.json'>метрики JSON</a>.</p>")
     for direction, response in forecasts.items():
         image_src = f"{direction}.png"
         if image_dir is not None:

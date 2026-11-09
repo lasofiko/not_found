@@ -10,6 +10,7 @@ from ml.data import DIRECTIONS, Series, load_config, load_dataset, parse_series
 from ml.evaluation import evaluate, score
 from ml.models import fit_model, predict
 from ml.predict import forecast, load_artifact
+from ml.review import baseline_comparison, break_review, terminal_check
 from ml.run import run
 from pipeline.build import build
 from test_pipeline import make_registry
@@ -184,7 +185,7 @@ class ArtifactTests(unittest.TestCase):
             self.assertEqual(result["model_version"], again["model_version"])
             self.assertEqual(before, result["model_path"].read_bytes())
             self.assertEqual(first, {d: forecast(d, root=root) for d in DIRECTIONS})
-            with (result["output_dir"] / "backtest_predictions.csv").open(encoding="utf-8-sig") as f:
+            with (result["output_dir"] / "backtest.csv").open(encoding="utf-8-sig") as f:
                 self.assertEqual(len(list(csv.DictReader(f))), 24)
             for direction, year in (("both", 2030), ("inbound", 2023), ("outbound", 2031), ("inbound", True)):
                 with self.subTest(direction=direction, year=year), self.assertRaises(ValueError):
@@ -192,6 +193,37 @@ class ArtifactTests(unittest.TestCase):
             result["model_path"].write_bytes(before + b" ")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 forecast(root=root)
+
+    def test_published_outputs_are_traceable_to_backtest(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            make_registry(root)
+            build(root)
+            result = run(root, plots=False)
+            output = result["output_dir"]
+            with (output / "backtest.csv").open(encoding="utf-8-sig") as f:
+                backtest = list(csv.DictReader(f))
+            with (output / "forecast.csv").open(encoding="utf-8-sig") as f:
+                forecasts = list(csv.DictReader(f))
+            published = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+            for row in backtest + forecasts:
+                self.assertEqual(row["model_version"], result["model_version"])
+                self.assertEqual(row["data_version"], result["data_version"])
+            self.assertTrue(all("один год" in row["warnings"] for row in forecasts))
+            for direction, models in published["metrics"].items():
+                for model_id, stages in models.items():
+                    for stage in ("development", "holdout"):
+                        rows = [r for r in backtest if (r["direction"], r["model_id"], r["stage"]) == (direction, model_id, stage)]
+                        errors = [abs(float(r["predicted_tonnes"]) - float(r["actual_tonnes"])) for r in rows]
+                        self.assertEqual(stages[stage]["observations"], len(rows))
+                        self.assertAlmostEqual(stages[stage]["MAE"], sum(errors) / len(errors), places=6)
+                        self.assertAlmostEqual(stages[stage]["WAPE"], 100 * sum(errors) / sum(float(r["actual_tonnes"]) for r in rows), places=6)
+            self.assertFalse(published["metric_definitions"]["RMSE"]["included"])
+            self.assertFalse(any(c["superiority_confirmed"] for c in published["baseline_comparison"].values()))
+            card = (output / "model-card.md").read_text(encoding="utf-8")
+            for heading in ("Сравнение с baseline", "Поведение в 2022–2023", "нельзя обоснованно публиковать", "Факторы"):
+                self.assertIn(heading, card)
+            self.assertFalse((output / "backtest_predictions.csv").exists())
 
     def test_missing_model_and_pointer_escape_are_rejected(self):
         with TemporaryDirectory() as folder:
@@ -202,3 +234,44 @@ class ArtifactTests(unittest.TestCase):
             (root / "models/latest.json").write_text(json.dumps({"model_path": "../outside.json"}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "выходит"):
                 load_artifact(root)
+
+
+class ReviewTests(unittest.TestCase):
+    def test_comparison_never_claims_superiority_and_marks_baseline(self):
+        def stage(mae):
+            return {"MAE": mae, "WAPE": 10.0, "observations": 2}
+
+        models = {"naive": {"development": stage(5.0), "holdout": stage(9.0)},
+                  "ses": {"development": stage(4.0), "holdout": stage(3.0)}}
+        result = baseline_comparison({"inbound": models}, {"inbound": {"model_id": "naive"}})["inbound"]
+        self.assertTrue(result["selected_is_baseline"])
+        self.assertEqual(result["lowest_holdout_MAE_model"], "ses")
+        self.assertFalse(result["superiority_confirmed"])
+
+    def test_break_review_uses_only_break_years_and_signed_errors(self):
+        series = synthetic_series((10, 11, 12, 13, 14, 15, 16, 32, 24))
+        rows, _, _ = evaluate(series, load_config())
+        review = break_review(series, rows)
+        self.assertEqual({r["period"] for r in review}, {2022, 2023})
+        naive = next(r for r in review if r["direction"] == "inbound" and r["period"] == 2022 and r["model_id"] == "naive")
+        self.assertAlmostEqual(naive["change_percent"], 100.0)
+        self.assertAlmostEqual(naive["error_tonnes"], -16.0)
+        self.assertAlmostEqual(naive["error_percent"], -50.0)
+
+    def test_terminal_check_prefers_same_year_publication_and_handles_absence(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            forecasts = {d: {"predictions": [{"period": "2024", "value": 50.0}]} for d in DIRECTIONS}
+            self.assertEqual(terminal_check(root, synthetic_series(), forecasts), [])
+            processed = root / "data/processed"
+            processed.mkdir(parents=True)
+            (processed / "context_observations.csv").write_text("series_id,period,value_tonnes\nterminal_cabotage,2023,36\n", encoding="utf-8")
+            fields = "period,operator,cargo_group,measurement_scope,value,source_id\n"
+            rows = ("2024-12,Росморпорт,Всего грузов,operator,200,seanews_2024_12__a\n"
+                    "2024-12,Росморпорт,Всего грузов,operator,201,seanews_2025_12__b\n")
+            (processed / "port_cabotage_cumulative.csv").write_text(fields + rows, encoding="utf-8")
+            result = {r["period"]: r for r in terminal_check(root, synthetic_series(), forecasts)}
+            self.assertEqual(result[2023]["line_kind"], "published_line")
+            self.assertAlmostEqual(result[2023]["line_tonnes"], 36.0)
+            self.assertEqual(result[2024]["terminal_tonnes"], 200.0)
+            self.assertAlmostEqual(result[2024]["difference_percent"], -50.0)

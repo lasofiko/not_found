@@ -15,7 +15,7 @@ from pipeline.input_check import INPUT_FIELDS, check_input
 from pipeline.package import package
 from pipeline.target_audit import REVIEW_FIELDS, check_source, human_review
 from pipeline.verify import verify
-from test_pipeline import test_registry
+from test_pipeline import make_registry
 
 
 class TargetHandoffTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class TargetHandoffTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "source"
         self.root.mkdir()
-        self.artifacts = test_registry(self.root)
+        self.artifacts = make_registry(self.root)
         for relative in ("docs/contracts.md", "docs/data-preparation.md", "docs/data-input-guide.md",
                          "data/README.md", "data/examples/observations-template.csv", "data/human-review-log.csv"):
             target = self.root / relative
@@ -113,7 +113,7 @@ class UserInputTests(unittest.TestCase):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        artifacts = test_registry(self.root)
+        artifacts = make_registry(self.root)
         self.path = self.root / "user.csv"
         self.row = dict.fromkeys(INPUT_FIELDS, "")
         self.row.update(period="2023", period_granularity="year", origin="ust_luga", destination="kaliningrad_port",

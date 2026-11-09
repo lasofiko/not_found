@@ -11,12 +11,15 @@ from ml.evaluation import BACKTEST_FIELDS, evaluate
 from ml.models import fit_model
 from ml.predict import WARNINGS, forecast, load_artifact
 from ml.reporting import html_report, model_card, plot_reports
+from ml.review import (BREAK_FIELDS, METRIC_DEFINITIONS, TERMINAL_FIELDS, WINDOW_ROLES, baseline_comparison,
+                       break_review, terminal_check)
 from pipeline.common import ROOT, digest, write_csv, write_json
 
-ML_VERSION = "0.1.0"
+ML_VERSION = "0.2.0"
 FORECAST_FIELDS = ["period", "period_granularity", "direction", "mode", "route_id", "value", "unit", "status",
                    "forecast_origin", "horizon_years", "selected_model", "lower_80", "upper_80", "lower_95", "upper_95",
-                   "data_version", "model_version"]
+                   "data_version", "model_version", "warnings"]
+BACKTEST_OUTPUT_FIELDS = [*BACKTEST_FIELDS, "data_version", "model_version"]
 
 
 def library_versions() -> dict:
@@ -66,9 +69,12 @@ def run(root: Path = ROOT, *, end_year: int = 2030, config_path: Path | None = N
     model_sha = digest(model_path.read_bytes())
     model_path.with_suffix(".json.sha256").write_text(model_sha + "\n", encoding="utf-8")
     forecasts = {d: forecast(d, end_year, root=root, model_path=model_path) for d in DIRECTIONS}
-    write_csv(output / "backtest_predictions.csv", BACKTEST_FIELDS, backtest)
+    versions = {"data_version": provenance["data_version"], "model_version": model_version}
+    write_csv(output / "backtest.csv", BACKTEST_OUTPUT_FIELDS, [{**row, **versions} for row in backtest])
+    comparison = baseline_comparison(metrics, chosen)
     write_json(output / "metrics.json", {"model_version": model_version, "data_version": provenance["data_version"],
-                                         "selected": chosen, "metrics": metrics,
+                                         "selected": chosen, "metrics": metrics, "baseline_comparison": comparison,
+                                         "metric_definitions": METRIC_DEFINITIONS, "window_roles": WINDOW_ROLES,
                                          "selection_period": "2020–2021", "holdout_period": "2022–2023", "evaluation_horizon_years": 1})
     write_json(output / "forecast.json", forecasts)
     forecast_rows = []
@@ -77,9 +83,14 @@ def run(root: Path = ROOT, *, end_year: int = 2030, config_path: Path | None = N
             forecast_rows.append(dict(zip(FORECAST_FIELDS, [row["period"], "year", direction, "sea", config["target"]["route_id"],
                                   row["value"], "tonnes", "forecast", 2023, row["horizon_years"], response["selected_model"],
                                   row["interval"]["80"]["lower"], row["interval"]["80"]["upper"],
-                                  row["interval"]["95"]["lower"], row["interval"]["95"]["upper"], provenance["data_version"], model_version])))
+                                  row["interval"]["95"]["lower"], row["interval"]["95"]["upper"], provenance["data_version"], model_version,
+                                  " | ".join(response["warnings"])])))
     write_csv(output / "forecast.csv", FORECAST_FIELDS, forecast_rows)
-    (output / "model_card.md").write_text(model_card(artifact), encoding="utf-8")
+    break_rows = break_review(series, backtest)
+    terminal_rows = terminal_check(root, series, forecasts)
+    write_csv(output / "break_2022_2023.csv", BREAK_FIELDS, break_rows)
+    write_csv(output / "external_terminal_check.csv", TERMINAL_FIELDS, terminal_rows)
+    (output / "model-card.md").write_text(model_card(artifact, comparison, break_rows, terminal_rows), encoding="utf-8")
     if plots:
         plot_reports(root, output, artifact, forecasts, backtest)
         (output / "report.html").write_text(html_report(artifact, forecasts, image_dir=output), encoding="utf-8")
