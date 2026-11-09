@@ -16,7 +16,7 @@ from pipeline.local_import import BUNDLES, import_bundle, import_directory
 from pipeline.package import package
 from pipeline.supplemental import regional, parse_archive_csv, parse_port, port_monthly
 from pipeline.verify import verify
-from test_pipeline import test_registry as make_registry
+from test_pipeline import make_registry
 
 
 class ImportTests(unittest.TestCase):

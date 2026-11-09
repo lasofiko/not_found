@@ -24,13 +24,13 @@ def load_port_artifact(root: Path = ROOT, model_path: Path | None = None) -> dic
             pointer_path = root / "models/port/latest.json"
             if not pointer_path.is_file():
                 raise ValueError("Модель каботажа отсутствует; выполните python -m ml.port_run")
-            pointer = json.loads(pointer_path.read_text())
+            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
             model_path = root / pointer["model_path"]
         model_path = Path(model_path).resolve()
         if not model_path.is_relative_to((root / "models/port").resolve()):
             raise ValueError("Путь модели каботажа выходит за models/port")
         body = model_path.read_bytes()
-        expected = model_path.with_suffix(".json.sha256").read_text().strip()
+        expected = model_path.with_suffix(".json.sha256").read_text(encoding="utf-8").strip()
         if digest(body) != expected or (pointer and pointer["sha256"] != expected):
             raise ValueError("Не совпадает SHA-256 модели каботажа")
         artifact = json.loads(body)

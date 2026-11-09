@@ -3,13 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "baltic-balance-2030"
+name = "not-found"
 version = "0.1.0"
 description = "Каркас прогноза грузопотоков Калининградской области"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "pydantic-settings>=2.6,<3"]
 
 [project.optional-dependencies]
+dev = ["pytest>=8,<9", "httpx>=0.27,<1", "ruff>=0.9,<1"]
 data = ["xlrd==2.0.2"]
 ml = ["statsmodels>=0.15,<0.16", "matplotlib>=3.8,<4", "numpy>=1.26,<3"]
 notebooks = [
@@ -20,6 +21,16 @@ notebooks = [
     "nbclient>=0.10,<1",
     "nbconvert>=7,<8",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests", "tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "pipeline*", "ml*"]

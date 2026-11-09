@@ -6,10 +6,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from fastapi import HTTPException
-from pydantic import ValidationError
+from fastapi.testclient import TestClient
 
-from backend.app import CapacityInput, calculate_capacity
+from backend.app import create_app
+from backend.core.settings import Settings
 from backend.scenarios import capacity_balance
 from ml.models import fit_model
 from ml.sensitivity import generate_report, make_grid, GRID_FIELDS
@@ -56,19 +56,36 @@ class BalanceTests(unittest.TestCase):
     def test_api_preserves_status_unit_provenance_and_rejects_overflow(self):
         inputs = dict(demand_tonnes=140, capacity_tonnes=120, capacity_delta_tonnes=30,
                       period="2027", assumption_source="Синтетическое условие теста")
-        response = calculate_capacity(CapacityInput(**inputs))
-        self.assertEqual(response["status"], "scenario")
-        self.assertEqual(response["unit"], "tonnes")
-        self.assertEqual(response["period"], "2027")
-        self.assertEqual(response["assumption_source"], inputs["assumption_source"])
-        self.assertEqual(response["scenario_spare_capacity_tonnes"], 10)
-        json.dumps(response, allow_nan=False)
-        for value in ("NaN", "Infinity", -1):
-            with self.subTest(value=value), self.assertRaises(ValidationError):
-                CapacityInput(**{**inputs, "demand_tonnes": value})
-        with self.assertRaises(HTTPException) as raised:
-            calculate_capacity(CapacityInput(**{**inputs, "capacity_tonnes": 1e308, "capacity_delta_tonnes": 1e308}))
-        self.assertEqual(raised.exception.status_code, 422)
+        settings = Settings(_env_file=None, environment="test", api_prefix="/scenario-test/v1",
+                            cors_origins=["http://localhost:5173"])
+        endpoint = "/scenario-test/v1/scenarios/capacity"
+        with TestClient(create_app(settings)) as client:
+            http_response = client.post(endpoint, json=inputs)
+            self.assertEqual(http_response.status_code, 200)
+            response = http_response.json()
+            self.assertEqual(response["status"], "scenario")
+            self.assertEqual(response["unit"], "tonnes")
+            self.assertEqual(response["period"], "2027")
+            self.assertEqual(response["assumption_source"], inputs["assumption_source"])
+            self.assertEqual(response["scenario_spare_capacity_tonnes"], 10)
+            expected = capacity_balance(demand_tonnes=140, capacity_tonnes=120, capacity_delta_tonnes=30)
+            self.assertEqual({key: response[key] for key in expected}, expected)
+            json.dumps(response, allow_nan=False)
+            invalid_inputs = [
+                {**inputs, "demand_tonnes": value} for value in ("NaN", "Infinity", -1)
+            ] + [
+                {**inputs, "capacity_tonnes": 1e308, "capacity_delta_tonnes": 1e308},
+                {**inputs, "period": "2027-13"},
+            ]
+            for invalid in invalid_inputs:
+                with self.subTest(inputs=invalid):
+                    error_response = client.post(endpoint, json=invalid)
+                    self.assertEqual(error_response.status_code, 422)
+                    error = error_response.json()["error"]
+                    self.assertEqual(error["code"], "VALIDATION_ERROR")
+                    self.assertEqual(error["message"], "Некорректные параметры запроса")
+                    self.assertTrue(error["details"])
+                    self.assertTrue(all(set(item) == {"field", "message"} for item in error["details"]))
 
     def test_percentage_grid_has_unique_combinations_and_correct_thresholds(self):
         rows = [dict(zip(GRID_FIELDS, r)) for r in make_grid(1_142_984.2654)]
@@ -101,7 +118,7 @@ def write_model_fixture(root):
                                            "url": "https://example.test/"}]}, "warnings": ["Синтетический тест"]}
     write_json(model, artifact)
     sha = digest(model.read_bytes())
-    model.with_suffix(".json.sha256").write_text(sha + "\n")
+    model.with_suffix(".json.sha256").write_text(sha + "\n", encoding="utf-8")
     write_json(root / "models/latest.json", {"model_path": "models/synthetic/model.json",
                "sha256": sha, "model_version": "synthetic"})
     return model
@@ -126,15 +143,15 @@ class SensitivityReportTests(unittest.TestCase):
             self.assertEqual({r["status"] for r in rows}, {"scenario"})
             self.assertEqual({r["period"] for r in rows}, {"2024"})
             self.assertEqual({r["direction"] for r in rows}, {"inbound", "outbound"})
-            payload = json.loads((output / "sensitivity.json").read_text())
+            payload = json.loads((output / "sensitivity.json").read_text(encoding="utf-8"))
             self.assertEqual(payload["defaults"]["period"], "2024")
             self.assertEqual(payload["forecasts"]["inbound"]["status"], "forecast")
             self.assertEqual(payload["human_methodology_review"], "pending")
-            text = (output / "report.html").read_text()
+            text = (output / "report.html").read_text(encoding="utf-8")
             self.assertNotIn("__REPORT_DATA__", text)
             self.assertNotIn("synthetic</script><script>test", text)
             self.assertNotIn("fetch(", text)
-            manifest = json.loads((output / "manifest.json").read_text())
+            manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
             for name, sha in manifest["outputs"].items():
                 self.assertEqual(digest((output / name).read_bytes()), sha)
 

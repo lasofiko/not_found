@@ -14,7 +14,7 @@ def fingerprint(prefix: str, inputs: dict, code_paths: list[Path]):
 
 
 def saved_time(path: Path):
-    return (json.loads(path.read_text())["generated_at"] if path.exists()
+    return (json.loads(path.read_text(encoding="utf-8"))["generated_at"] if path.exists()
             else datetime.now(timezone.utc).isoformat(timespec="seconds"))
 
 
@@ -22,7 +22,7 @@ def save_model(path: Path, artifact: dict):
     json.dumps(artifact, allow_nan=False)
     write_json(path, artifact)
     sha = digest(path.read_bytes())
-    path.with_suffix(".json.sha256").write_text(sha + "\n")
+    path.with_suffix(".json.sha256").write_text(sha + "\n", encoding="utf-8")
     return sha
 
 

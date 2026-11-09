@@ -53,7 +53,7 @@ def verified_context(root: Path, required: list[str]):
     errors = verify(root)
     if errors:
         raise ValueError("Комплект не прошёл проверку: " + "; ".join(errors[:5]))
-    manifest = json.loads((root / "data/processed/build_manifest.json").read_text())
+    manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     for name in required:
         if "data/processed/" + name not in manifest["outputs"]:
             raise ValueError("Таблица не включена в манифест: " + name)
