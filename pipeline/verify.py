@@ -10,6 +10,51 @@ from decimal import Decimal, InvalidOperation
 from pipeline.common import ROOT, artifact_path, digest, load_registry, verify_artifact
 from pipeline.extract import mass
 from pipeline.validate import validate
+from pipeline.target_audit import check_source, human_review
+
+
+def verify_extended(root: Path, manifest: dict) -> list[str]:
+    """Содержательные проверки единиц и календаря дополнительных рядов."""
+    from pipeline.validate import valid_period
+    errors = []
+    names = {"airport_freight.csv", "rail_transit_monthly.csv", "rail_transit_cargo.csv", "weather_daily.csv",
+             "regional_source_indicators.csv", "connectivity_routes.csv", "border_source_observations.csv",
+             "documentary_observations.csv", "lithuania_transport_counts.csv"}
+    for relative in manifest["outputs"]:
+        name = Path(relative).name
+        if name not in names:
+            continue
+        seen = set()
+        with (root / relative).open(encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                raw, val = row["original_value"], row["value"]
+                absent = raw in {"", "—", "–", "-", "***", "-77777777", "-99999999", "CD", "ND"}
+                ambiguous = "ambiguous_thousands_separator" in row.get("quality_flags", "")
+                try:
+                    expected = Decimal(raw.replace(" ", "").replace("\u00a0", "").replace("\u202f", "").replace(",", ".")) * Decimal(row["conversion_factor"]) if not absent and not ambiguous else None
+                    correct = val == "" if expected is None else Decimal(val) == expected and Decimal(val).is_finite()
+                except (InvalidOperation, ValueError):
+                    correct = False
+                if not correct:
+                    errors.append(f"{name}: ошибочный пересчёт/пропуск: {row['source_locator']}")
+                step, period = row["period_granularity"], row["period"]
+                try:
+                    calendar_valid = date.fromisoformat(period).isoformat() == period if step == "day" else valid_period(period, step)
+                except ValueError:
+                    calendar_valid = False
+                if not calendar_valid:
+                    errors.append(f"{name}: неверный календарный период")
+                key = (row["source_id"], row["source_locator"])
+                if key in seen:
+                    errors.append(f"{name}: повтор исходной ячейки")
+                seen.add(key)
+                if name == "rail_transit_monthly.csv" and (row["direction_scope"] not in {"inbound", "outbound"} or row["unit"] != "tonnes"):
+                    errors.append("БЖД: неподтверждённое направление или единица")
+                if name == "airport_freight.csv" and (row["metric"] not in {"airport_cargo", "airport_mail"} or row["direction_scope"] != "both"):
+                    errors.append("Аэропорт: смешаны пассажиры/OD/почта")
+                if name == "border_source_observations.csv" and row["unit"] != "truck_crossings":
+                    errors.append("Пересечения грузовиков не должны становиться тоннами")
+    return errors
 
 
 def verify_supplemental(root: Path, manifest: dict) -> list[str]:
@@ -73,7 +118,8 @@ def verify(root: Path) -> list[str]:
         registry_sha = digest((root / "data/source_registry.json").read_bytes())
         if registry_sha != manifest["registry_sha256"]:
             errors.append("Реестр изменился после сборки: требуется повторная сборка")
-        for path, expected in {**manifest["outputs"], **manifest["code"]}.items():
+        for path, expected in {**manifest["outputs"], **manifest["code"],
+                               **manifest.get("review_inputs", {}), **manifest.get("handoff_assets", {})}.items():
             actual = (root / path).resolve()
             if not actual.is_relative_to(root.resolve()):
                 raise ValueError("Путь из манифеста выходит за корень комплекта")
@@ -91,6 +137,17 @@ def verify(root: Path) -> list[str]:
                                registry=root / "data/source_registry.json", root=root,
                                corridor=True, require_observations=bool(manifest["candidate_rows"]), observed_only=True,
                                source_ids=input_ids if partial else None))
+        if "data/processed/target-source-check.csv" in manifest["outputs"]:
+            with (root / "data/processed/candidate_observations.csv").open(encoding="utf-8-sig", newline="") as stream:
+                candidate = list(csv.DictReader(stream))
+            expected_checks, _ = check_source(root, candidate, selected)
+            with (root / "data/processed/target-source-check.csv").open(encoding="utf-8-sig", newline="") as stream:
+                saved_checks = list(csv.DictReader(stream))
+            if saved_checks != [{k: str(v) for k, v in r.items()} for r in expected_checks]:
+                errors.append("Построчная сверка кандидата не совпадает с оригиналом")
+            quality = json.loads((root / "data/processed/target-quality.json").read_text(encoding="utf-8"))
+            if quality["human_review"] != human_review(root, expected_checks):
+                errors.append("Статус человеческой проверки не совпадает с журналом")
         source_ids = input_ids
         for relative in manifest["outputs"]:
             if not relative.endswith(".csv"):
@@ -107,6 +164,7 @@ def verify(root: Path) -> list[str]:
                 if any(s not in source_ids for s in filter(None, row.get("upstream_source_ids", "").split(";"))):
                     errors.append(f"{relative}: первоисточник не включён в сборку")
         errors.extend(verify_supplemental(root, manifest))
+        errors.extend(verify_extended(root, manifest))
         with (root / "data/processed/context_observations.csv").open(encoding="utf-8-sig", newline="") as stream:
             seen = set()
             for line, row in enumerate(csv.DictReader(stream), 2):

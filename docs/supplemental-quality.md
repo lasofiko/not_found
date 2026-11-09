@@ -1,6 +1,6 @@
 # Качество новых комплектов
 
-Версия: `bb-data-b2d73c9cd099`.
+Версия: `bb-data-9b14bc321b2e`.
 
 Цель — грузовой коридор Калининград ↔ основная часть РФ по всем видам транспорта. Ни одна таблица автоматически не объявляется полным целевым рядом. Человеческая приёмка не выполнена.
 
@@ -12,10 +12,10 @@
 | `regional_freight.csv` | 70 |
 | `supplemental_freight.csv` | 162 |
 | `border_crossings.csv` | 228 |
-| `port_cabotage_cumulative.csv` | 16900 |
-| `port_cabotage_monthly.csv` | 3550 |
+| `port_cabotage_cumulative.csv` | 48586 |
+| `port_cabotage_monthly.csv` | 5912 |
 | `freight_coverage.csv` | 4 |
-| `supplemental_issues.csv` | 5604 |
+| `supplemental_issues.csv` | 18838 |
 
 ## Региональная книга
 
@@ -31,12 +31,14 @@
 
 | Причина | Записей |
 |---|---:|
+| `ambiguous_snapshot` | 124 |
 | `component_total_mismatch` | 1 |
 | `conflicting_versions` | 6 |
-| `missing_previous_month` | 520 |
-| `missing_value` | 4372 |
+| `historical_scope_unconfirmed` | 1 |
+| `missing_previous_month` | 2795 |
+| `missing_value` | 15204 |
 | `multiple_versions` | 686 |
-| `negative_difference` | 8 |
+| `negative_difference` | 10 |
 | `scope_conflict` | 2 |
 | `transport_form_in_cargo_list` | 9 |
 

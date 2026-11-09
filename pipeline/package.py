@@ -2,7 +2,7 @@
 import argparse
 import json
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from pipeline.common import ROOT, digest, load_registry
 from pipeline.verify import verify
@@ -14,6 +14,8 @@ def package(root: Path, output: Path) -> Path:
         raise ValueError("\n".join(errors))
     manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     paths = set(manifest["outputs"]) | set(manifest["code"])
+    paths.update(manifest.get("review_inputs", {}))
+    paths.update(manifest.get("handoff_assets", {}))
     input_ids = {a["source_id"] for a in manifest["inputs"]}
     paths.update(a["local_path"] for a in load_registry(root) if a["source_id"] in input_ids)
     paths.update({"data/source_registry.json", "data/processed/build_manifest.json",
@@ -25,13 +27,18 @@ def package(root: Path, output: Path) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
     with ZipFile(temporary, "w", compression=ZIP_DEFLATED) as archive:
+        def put(relative, payload):
+            info = ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, payload)
         scope = f"Режим комплекта: {manifest.get('build_scope', 'full')}. Отсутствующих оригиналов: {len(manifest.get('unavailable_source_ids', []))}.\n\n"
-        archive.writestr("HANDOFF.md", scope.encode() + (root / "docs/data-preparation.md").read_bytes())
+        put("HANDOFF.md", scope.encode() + (root / "docs/data-preparation.md").read_bytes())
         for relative in sorted(paths):
             path = (root / relative).resolve()
             if not path.is_relative_to(root.resolve()):
                 raise ValueError("Путь архива выходит за корень проекта")
-            archive.write(path, relative)
+            put(relative, path.read_bytes())
     temporary.replace(output)
     output.with_suffix(output.suffix + ".sha256").write_text(
         f"{digest(output.read_bytes())}  {output.name}\n", encoding="utf-8")

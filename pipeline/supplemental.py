@@ -262,9 +262,15 @@ def parse_port(sheets, artifact, version):
     if len(nonempty) != 1:
         raise ValueError("Ожидался один заполненный лист SeaNews")
     sheet, rows = nonempty[0]
-    if "каботаж" not in text(rows.get(2, {}).get("A")).lower() or "тыс. тонн" not in [text(v) for v in rows.get(2, {}).values()]:
+    preamble = [cells for n, cells in sorted(rows.items()) if n <= 8]
+    if not any("каботаж" in text(v).lower() for cells in preamble for v in cells.values()) or not any(
+            text(v) == "тыс. тонн" for cells in preamble for v in cells.values()):
         raise ValueError("Не подтверждены каботаж и единица SeaNews")
-    title = text(rows[1].get("A", ""))
+    titles = [text(v) for cells in preamble for v in cells.values()
+              if "перевалки" in text(v).lower() and "20" in text(v)]
+    if len(titles) != 1:
+        raise ValueError("Неоднозначный заголовок SeaNews")
+    title = titles[0]
     year, month = artifact["publication_year"], artifact["publication_month"]
     if str(year) not in title:
         raise ValueError("Год заголовка SeaNews не совпадает с паспортом")
@@ -276,27 +282,35 @@ def parse_port(sheets, artifact, version):
                          3 if "за 1 квартал" in title else 12 if re.search(r"за\s+20\d\d\s+(?:г\.|год)", title) else None)
         if special_month != month:
             raise ValueError("Не подтверждён месяц накопления SeaNews")
-    original_header = rows[3]
+    headers = [cells for n, cells in sorted(rows.items()) if n <= 10 and any(text(v) == "Год" for v in cells.values())]
+    if len(headers) != 1:
+        raise ValueError("Неоднозначная строка шапки SeaNews")
+    original_header = headers[0]
     header = {c: text(v.replace("-\n", "-")).replace("нефте-продукты", "нефтепродукты") for c, v in original_header.items()}
-    if header.get("C") != "Всего грузов" or header.get("B") != "Год":
+    columns = sorted(header, key=lambda c: (len(c), c))
+    year_col = next(c for c in columns if header[c] == "Год")
+    year_index = columns.index(year_col)
+    name_col = columns[year_index - 1]
+    total_col = columns[year_index + 1]
+    if header.get(total_col) != "Всего грузов":
         raise ValueError("Изменилась схема SeaNews")
     result, port, operator = [], "", ""
     target_ports = {"Порт Калининград", "Порт Пионерский"}
     for n, cells in sorted(rows.items()):
-        label = text(cells.get("A", ""))
+        label = text(cells.get(name_col, ""))
         if re.search(r"\bбассейн\b", label.lower()):
             port, operator = "", ""
             continue
         if label.startswith("Порт "):
             port, operator = label, ""
             continue
-        if label.startswith("Итого") and not cells.get("B"):
+        if label.startswith("Итого") and not cells.get(year_col):
             port, operator = "", ""
         if port not in target_ports:
             continue
         if label:
             operator = label
-        row_year = cells.get("B", "")
+        row_year = cells.get(year_col, "")
         if row_year == "%" or row_year == "":
             continue
         if not re.fullmatch(r"\d{2}|\d{4}", row_year):
@@ -308,7 +322,7 @@ def parse_port(sheets, artifact, version):
             raise ValueError("Строка SeaNews без объекта учёта")
         scope = "port_total" if operator.lower().startswith("итого") else "operator"
         for col, cargo in header.items():
-            if col in {"A", "B"} or not cargo:
+            if columns.index(col) <= year_index or not cargo:
                 continue
             raw = cells.get(col, "")
             value = "" if raw in {"", "-", "–", "—"} else decimal_text(Decimal(number(raw, nonnegative=True)) * 1000)
@@ -358,7 +372,7 @@ def prepare_supplemental(root, latest, version, exports):
     outputs, issues, quality = {}, [], {"data_version": version, "human_review_completed": False}
     regional_rows, freight, borders, ports = [], [], [], []
     artifacts = {a["source_id"]: a for a in latest.values()}
-    by_url = {a["url"]: a["source_id"] for a in latest.values() if a.get("dataset_kind") == "reference"}
+    by_url = {a["url"]: a["source_id"] for a in latest.values() if a.get("url", "").startswith(("http://", "https://"))}
     for key, artifact in sorted(latest.items()):
         kind = artifact.get("dataset_kind")
         if kind == "regional_indicators":
@@ -366,7 +380,7 @@ def prepare_supplemental(root, latest, version, exports):
             regional_rows, profile = regional(sheets, artifact, version, issues)
             quality["regional"] = profile
             quality["combined_export_checks"] = export_reconciliation(sheets, exports, artifact, issues)
-        elif kind == "port_cabotage":
+        elif kind in {"port_cabotage", "historical_port_cabotage"}:
             path = verify_artifact(root, artifact)
             if artifact["format"] == "xlsx":
                 sheets = read_xlsx(path)
@@ -375,7 +389,13 @@ def prepare_supplemental(root, latest, version, exports):
                 book = xlrd.open_workbook(str(path))
                 sheets = [(s.name, {i + 1: {column_name(c): excel_text(s.cell_value(i, c)) for c in range(s.ncols)}
                                      for i in range(s.nrows) if any(s.row_values(i))}) for s in book.sheets()]
-            ports.extend(parse_port(sheets, artifact, version))
+            try:
+                ports.extend(parse_port(sheets, artifact, version))
+            except ValueError as error:
+                if kind != "historical_port_cabotage":
+                    raise
+                issue(issues, "port_cabotage_cumulative", artifact["source_id"], "Заголовок/шапка исходного выпуска",
+                      "historical_scope_unconfirmed", str(error))
         elif kind in {"ferry_monthly", "ferry_forms", "ferry_cargo", "ltg_annual", "rail_discrepancy", "line_annual_archive", "fleet_annual_archive", "border_crossings"}:
             with verify_artifact(root, artifact).open(encoding="utf-8-sig", newline="") as stream:
                 new_freight, new_borders = parse_archive_csv(artifact, csv.DictReader(stream), version, by_url, issues)
