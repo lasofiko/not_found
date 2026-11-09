@@ -1,4 +1,3 @@
-```html
 <!doctype html>
 <html lang="ru">
   <head>
@@ -16,10 +15,15 @@
     <script type="module" src="/src/main.tsx"></script>
 
     <!-- Yandex AI Studio Widget -->
+    <script>
+      window.AiStudioChatWidgetConfig = {
+        manualMount: true,
+      };
+    </script>
     <script
       src="https://widget.aistudio.yandexcloud.net/scripts/widget-loader.js?channel-id=aacpim45iu5ubg29jt66"
       async
+      onload="window.dispatchEvent(new Event('ai-studio-widget-ready'))"
     ></script>
   </body>
 </html>
-```
