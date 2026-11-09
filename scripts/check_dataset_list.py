@@ -242,7 +242,7 @@ def audit(document, root, output):
         "- `dataset-groups.csv` — все 24 позиции и пояснение различий.",
         "- `summary.json` — количества, хеши документа/реестра и параметры проверки.", "",
         f"В текущем реестре {len(registry['artifacts'])} паспортов; проверка байтов: {dict(Counter(checked.values()))}. "
-        f"Архив передачи: `{archive_info['path']}`, SHA-256 `{archive_info.get('sha256', 'не найден')}`. ",
+        f"Архив передачи: `{archive_info['path']}`, SHA-256 `{archive_info.get('sha256', 'не найден')}`.",
         ("DOCX со ссылками включён в архив." if archive_info.get("document_included") else "DOCX со ссылками не найден в проверяемом архиве."),
         "Наличие каждого конкретного оригинала в ZIP отражено в колонке in_handoff; несовпадение составов проекта и старого архива не скрывается.", "",
         "## Что остаётся", "",

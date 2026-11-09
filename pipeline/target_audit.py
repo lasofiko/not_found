@@ -139,6 +139,18 @@ def prepare_target_audit(root: Path, version: str, candidate: list[dict], contex
                          supplemental_quality: dict | None = None, table_quality: dict | None = None) -> list[str]:
     checks, components = check_source(root, candidate, artifacts)
     review = human_review(root, checks)
+    review_details = "Человеческое подтверждение отсутствует."
+    review_path = root / "data/human-review-log.csv"
+    if review["records"]:
+        with review_path.open(encoding="utf-8-sig", newline="") as stream:
+            review_rows = list(csv.DictReader(stream))
+        reviewers = "; ".join(sorted({r["reviewer"] for r in review_rows}))
+        dates = "; ".join(sorted({r["reviewed_at"] for r in review_rows}))
+        comments = " ".join(dict.fromkeys(r["comment"] for r in review_rows if r["comment"]))
+        review_details = (f"Записанный проверяющий: **{reviewers}**. Дата: **{dates}**. "
+                          f"Основание и границы: {comments} "
+                          "Это запись сообщения проверяющего; личность программно не подтверждается. "
+                          "Методика, тара, охват операторов и утверждение цели остаются отдельными решениями.")
     coverage = corridor_coverage(candidate, version)
     sources = {a["source_id"]: a for a in artifacts}
     source = sources[candidate[0]["source_id"]] if candidate else None
@@ -196,6 +208,8 @@ def prepare_target_audit(root: Path, version: str, candidate: list[dict], contex
 Технически сверено строк: {len(checks)}; проверены год, подпись, число, единица и OD. Это **автоматическая сверка**, выполненная с помощью ИИ.
 Файл `data/processed/target-source-check.csv` связывает номер строки CSV с годовой вкладкой, номером HTML-таблицы, строки и второй ячейки; индексы от 1.
 Человеческих записей: {review['records']}; подтверждённых ячеек: {review['matched_candidate_cells']}/{len(checks)}. Статус: `{review['status']}`.
+
+{review_details}
 
 ## Сопоставимость и нерешённые вопросы
 
@@ -259,7 +273,7 @@ def prepare_target_audit(root: Path, version: str, candidate: list[dict], contex
         "## Двойной счёт", "", "Масса цели берётся только из двух строк линии. Терминал, флот, порт, товарные записи и счётчики к ней не прибавляются. "
         "Вагоны на пароме не создают строк rail_land. Идентификаторов отправок в годовом источнике нет: внутреннюю дедупликацию отправок у издателя проверить невозможно.", "",
         "## Человеческая проверка и ИИ", "", f"Записей человека: {review['records']}; подтверждённых ячеек: {review['matched_candidate_cells']}; вопросов: {review['issues']}; статус `{review['status']}`. "
-        "Имя и дата не вымышлены: пустой журнал ожидает реального проверяющего. ИИ написал извлечение, паспорт и проверки; машинное совпадение не означает человеческой приёмки.", "",
+        + review_details + " ИИ оформил журнал и отчёт; автоматическое совпадение не заменяет человеческую проверку и не утверждает методику.", "",
         "## Воспроизведение", "", "Манифест фиксирует каждый вход и выход, код и журнал проверки. `pipeline.verify` проверяет хеши, единицы и повторно сверяет целевые ячейки с оригиналом. "
         "Пакет пересобирается без сети из включённых оригиналов; режим и отсутствующие source_id указаны в манифесте. "
         "Результат автоматической проверки распакованной копии фиксируется отдельно в отчёте проверки передачи; независимая пересборка другим участником ожидается.", ""]
