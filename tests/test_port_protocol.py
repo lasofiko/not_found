@@ -4,13 +4,16 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+import json
+from unittest.mock import patch
 
 from ml.port_evaluation import evaluate_port, load_port_protocol, PROTOCOL
 from ml.port_models import MODEL_IDS, fit_port_model, forecast_values
 from ml.port_run import blind_check
 from pipeline.common import write_csv
 from pipeline.model_inputs import month_index, month_period
-from pipeline.port_protocol import derive_versions, series_asof
+from pipeline.port_protocol import derive_versions, series_asof, load_blind_cumulatives
+from test_supplemental import port_fixture
 from test_port_ml import monthly_fixture
 
 
@@ -31,6 +34,56 @@ def cumulative_fixture():
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_far_east_blind_reads_only_two_raw_issues_and_validates_columns(self):
+        artifacts = [{"source_id": f"synthetic_{month}", "dataset_kind": "port_cabotage",
+                      "publication_year": 2026, "publication_month": month,
+                      "sha256": "a" * 64, "local_path": f"data/raw/synthetic/{month}.xls"} for month in (8, 9)]
+        def book(_, artifact):
+            month = artifact["publication_month"]
+            fixture = port_fixture(month)
+            cells = fixture[0][1]
+            cells[1]["A"] = f"Объём перевалки за {month} месяцев 2026 г."
+            cells[4]["A"] = "Порт Владивосток"
+            cells[8]["A"] = "Итого Порт Владивосток"
+            for row in cells.values():
+                if row.get("B") == "25":
+                    row["B"] = "26"
+                elif row.get("B") == "24":
+                    row["B"] = "25"
+            return fixture
+        with patch("pipeline.port_protocol.load_registry", return_value=artifacts), patch(
+                "pipeline.bundle_sources.sheets", side_effect=book) as reader:
+            rows, metadata = load_blind_cumulatives(Path("."), "vladivostok_total")
+        self.assertEqual({r["period"] for r in rows}, {"2026-08", "2026-09"})
+        self.assertTrue(all(r["measurement_scope"] == "port_total" for r in rows))
+        self.assertEqual(reader.call_count, 2)
+        self.assertEqual(metadata["raw_source_validation"], "performed_for_target_cells")
+
+    def test_far_east_blind_lock_precedes_read_and_success_is_cached(self):
+        state = fit_port_model("naive", [100.] * 43)
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            fields = ["period", "port", "cargo_group", "measurement_scope", "value", "unit", "status",
+                      "source_id", "source_locator"]
+            write_csv(root / "data/processed/port_cabotage_monthly.csv", fields, [])
+            destination = root / "reports/generated/ml-port/blind_checks/vladivostok_total.json"
+            def closed_values(*_):
+                self.assertEqual(json.loads(destination.read_text())["status"], "started")
+                base = {"port": "Порт Владивосток", "cargo_group": "Всего грузов", "measurement_scope": "port_total",
+                        "unit": "tonnes", "status": "observed", "source_locator": "synthetic!C9"}
+                return [{**base, "period": "2026-08", "value": "800", "source_id": "aug"},
+                        {**base, "period": "2026-09", "value": "900", "source_id": "sep"}], {
+                    "raw_source_validation": "performed_for_target_cells", "source_artifacts": []}
+            with patch("pipeline.port_protocol.load_blind_cumulatives", side_effect=closed_values) as loader:
+                first = blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol())
+                second = blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol())
+                self.assertEqual(first, second)
+                self.assertEqual(loader.call_count, 1)
+            self.assertIsNone(first["provided_september_difference_matches"])
+            destination.write_text(json.dumps({"selection_lock": first["selection_lock"], "status": "started"}))
+            with self.assertRaisesRegex(ValueError, "не завершена"):
+                blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol())
+
     def test_rules_are_frozen_and_ridge_is_not_a_candidate(self):
         self.assertEqual(load_port_protocol(), PROTOCOL)
         self.assertEqual(MODEL_IDS, ('naive', 'seasonal_naive', 'drift', 'ses'))

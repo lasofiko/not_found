@@ -5,6 +5,7 @@ import html
 import json
 import os
 from pathlib import Path
+import subprocess
 
 from ml.experiment_io import fingerprint, saved_time, save_model, finish_manifest, page, table, number, image_tag
 from ml.port_evaluation import BACKTEST_FIELDS, evaluate_port, load_port_protocol
@@ -26,20 +27,21 @@ def blind_check(root, target_id, state, naive_state, rows, protocol):
         saved = json.loads(destination.read_text(encoding="utf-8"))
         if saved["selection_lock"] != lock:
             raise ValueError("Слепая проверка уже просмотрена; изменение состояния/данных требует нового протокола")
+        if saved.get("status") == "started":
+            raise ValueError("Слепая проверка была начата, но не завершена; требуется разбор сбоя без нового выбора")
         return saved
     # Блокировка записывается до открытия фактов: авария не разрешает новый выбор.
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("x", encoding="utf-8") as stream:
         json.dump({"selection_lock": lock, "status": "started"}, stream)
     port, cargo = TARGETS[target_id]
+    from pipeline.port_protocol import load_blind_cumulatives
+    blind_rows, source_metadata = load_blind_cumulatives(root, target_id)
     selected = {}
-    with (root / "data/processed/port_cabotage_cumulative.csv").open(encoding="utf-8-sig", newline="") as stream:
-        for row in csv.DictReader(stream):
-            if (row["period"] in {"2026-08", "2026-09"} and row["port"] == port
-                    and row["cargo_group"] == cargo and row["measurement_scope"] == "port_total"):
-                if row["period"] in selected or row["unit"] != "tonnes" or row["status"] != "observed":
-                    raise ValueError("Неоднозначный/несопоставимый слепой итог")
-                selected[row["period"]] = row
+    for row in blind_rows:
+        if row["period"] in selected or row["unit"] != "tonnes" or row["status"] != "observed":
+            raise ValueError("Неоднозначный/несопоставимый слепой итог")
+        selected[row["period"]] = row
     if set(selected) != {"2026-08", "2026-09"}:
         result = {"selection_lock": lock, "status": "not_available", "target_id": target_id}
         write_json(destination, result)
@@ -73,8 +75,8 @@ def blind_check(root, target_id, state, naive_state, rows, protocol):
                 provided_matches.append(delta >= 0 and _mass(row["value"]) == delta
                     and row["previous_source_id"] == august["source_id"] and row["source_id"] == september["source_id"])
     result = {"selection_lock": lock, "status": "completed", "target_id": target_id, "comparisons": comparisons,
-        "provided_september_difference_matches": provided_matches == [True],
-        "raw_source_validation": "not_performed", "selection_changed": False,
+        "provided_september_difference_matches": provided_matches == [True] if provided_matches else None,
+        **source_metadata, "selection_changed": False,
         "limitations": "Одно сравнение суммы и одного месяца, не независимая выборка; сентябрь уже был виден ранее."}
     write_json(destination, result)
     return result
@@ -136,10 +138,16 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
     root = Path(root).resolve()
     protocol = load_port_protocol()
     rows, provenance = load_port_series(root, target_id)
+    try:
+        provenance["git_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+        provenance["git_tracked_dirty"] = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, text=True))
+    except (OSError, subprocess.CalledProcessError):
+        provenance["git_commit"], provenance["git_tracked_dirty"] = None, None
     libraries = library_versions()
     code = [Path(__file__), *[Path(__file__).with_name(p) for p in (
         "port_models.py", "port_evaluation.py", "port_predict.py", "port_protocol.toml", "experiment_io.py", "models.py")],
         Path(__file__).parents[1] / "pipeline/port_protocol.py",
+        Path(__file__).parents[1] / "pipeline/bundle_sources.py",
         Path(__file__).parents[1] / "docs/ml-port-evaluation-protocol.md"]
     data_sha = digest(json.dumps(rows, ensure_ascii=False, sort_keys=True).encode())
     model_version, inputs = fingerprint("bb-port-", {"data_version": provenance["data_version"], "dataset_sha256": data_sha,
@@ -181,7 +189,10 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
     write_json(output / "metrics.json", {"selected_model": chosen, "metrics": metrics, "protocol": protocol,
         "selection_status": selection_status, "target_status": "estimated", "verification_scope": provenance.get("verification_scope"),
         "metric_definitions": {"MAE": "средняя абсолютная ошибка, тонны за месяц", "WAPE": "100 * sum(abs(error)) / sum(actual); null при нуле"},
-        "window_roles": {"development": "selection_only", "holdout": "previously_seen_total_and_related_groups"}})
+        "window_roles": {"development": "selection_only", "holdout": (
+            "previously_seen_total" if target_id == "kaliningrad_total" else
+            "related_to_previously_seen_total" if target_id.startswith("kaliningrad_") else
+            "heldout_not_used_for_selection")}})
     write_json(output / "forecast.json", response)
     write_csv(output / "forecast.csv", ["period", "value", "unit", "status", "timing", "experimental", "lower_80", "upper_80", "lower_95", "upper_95"],
         [{"period": r["period"], "value": r["value"], "unit": "tonnes", "status": "forecast", "timing": r["timing"],
@@ -203,7 +214,8 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
         "Границы ограничены нулём; покрытие интервалов не подтверждено. После 12 месяцев экспериментально.\n\n"
         "Для Калининграда «Всего грузов» проверка уже просматривалась; связанные группы также не полностью независимы. "
         + ("Слепая проверка сохранена отдельно и выбор не меняет.\n\n" if check_blind else "Слепая проверка 2026 не открывалась этим запуском; отдельная команда --blind-check.\n\n")
-        + "ИИ подготовил код и технические проверки; человеческая предметная приёмка pending.\n\n"
+        + "ИИ подготовил код и технические проверки. Общая приёмка Пети — в журнале решений; "
+          "подробная человеческая сверка ячеек остаётся pending.\n\n"
         + "\n".join("- " + w for w in warnings) + "\n")
     (output / "model-card.md").write_text(card, encoding="utf-8")
     if plots:

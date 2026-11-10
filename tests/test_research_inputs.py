@@ -53,7 +53,11 @@ class ShippedTables(unittest.TestCase):
                 self.assertEqual(fact["verification"], "checked_search", fact["fact_id"])
 
     def test_repair_days_of_2026(self):
-        self.assertEqual(repair_days(load_repairs(), 2026), 156)
+        repairs = load_repairs()
+        self.assertEqual(repair_days(repairs, 2026), 177)
+        self.assertEqual(repair_days([r for r in repairs if r["ferry"] == "Амбал"], 2026), 73)
+        balt = next(r for r in repairs if r["ferry"] == "Балтийск" and r["start"].year == 2026)
+        self.assertEqual(balt["status"], "plan")
 
 
 class RepairCalculations(unittest.TestCase):

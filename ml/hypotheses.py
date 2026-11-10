@@ -17,6 +17,7 @@ from ml.research_inputs import (
     action_scenarios,
     load_facts,
     load_repairs,
+    repair_days,
     research_rows,
 )
 from pipeline.common import ROOT, write_csv
@@ -27,7 +28,6 @@ WEATHER_POINT = "Балтийск"
 STRONG_WIND_KMH = (40, 50)
 MAIN_FERRIES = (3, 4)
 MONTH_DAYS = 30.4375
-AMBAL_REPAIR_DAYS = 67  # 1 мая – первый рейс 7 июля 2026, ml/inputs/ferry_repairs.csv
 TERMINAL_DESIGN_TONNES_MONTH = 439_350  # PDF Росморпорта «Балтийск», октябрь 2026
 TERMINAL_LOAD_TONNES_MONTH = 147_300  # тот же PDF
 CROSSING_HOURS = (38, 45)
@@ -246,7 +246,8 @@ def results(
         annual[int(row["period"])][row["direction"]] = float(row["value_tonnes"])
     gaps = [v["inbound"] - v["outbound"] for v in annual.values()]
     last = annual[max(annual)]
-    repair = AMBAL_REPAIR_DAYS / MONTH_DAYS
+    ambal_days = repair_days([r for r in load_repairs() if r["ferry"] == "Амбал"], 2026)
+    repair = ambal_days / MONTH_DAYS
     limit_demand = "Спрос сверх перевезённого неизвестен; связь по 3–4 паромам не доказывает эффект."
     rows = [
         {
@@ -264,7 +265,7 @@ def results(
         {
             "hypothesis_id": "reserve_ferry",
             "hypothesis": "Резервный паром на время ремонтов",
-            "indicator": f"Потенциал на ремонт «Амбала», {AMBAL_REPAIR_DAYS} дней",
+            "indicator": f"Потенциал на ремонт «Амбала», {ambal_days} дней",
             "low": low * repair,
             "central": central * repair,
             "high": high * repair,

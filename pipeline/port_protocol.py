@@ -180,3 +180,32 @@ def load_protocol_series(root, target_id="kaliningrad_ferries"):
         "source_bundle": manifest.get("source_bundle"), "vintage_policy": "earliest_available_comparable_difference",
         "availability_method": "Конец месяца размещения из URL; точный день не установлен.",
         "human_methodology_review": "pending", "blind_2026_loaded": False}
+
+
+def load_blind_cumulatives(root, target_id):
+    """Вызывается только после блокировки; не используется подготовкой истории."""
+    root = Path(root)
+    port, cargo = TARGETS[target_id]
+    metadata = {"raw_source_validation": "not_performed", "source_artifacts": []}
+    if target_id in {"petropavlovsk_total", "vladivostok_total"}:
+        from pipeline.bundle_sources import sheets
+        from pipeline.supplemental import parse_port
+        artifacts = load_registry(root)
+        rows = []
+        for month in (8, 9):
+            candidates = [a for a in artifacts if a.get("dataset_kind") == "port_cabotage"
+                          and a.get("publication_year") == 2026 and a.get("publication_month") == month]
+            if len(candidates) != 1:
+                raise ValueError("Нет однозначного паспорта выпуска слепой проверки")
+            artifact = candidates[0]
+            parsed = parse_port(sheets(root, artifact), artifact, "blind_check_only",
+                                target_ports={port}, cargo_groups={cargo})
+            rows.extend(r for r in parsed if r["period"] == f"2026-{month:02d}"
+                        and r["measurement_scope"] == "port_total")
+            metadata["source_artifacts"].append({k: artifact[k] for k in ("source_id", "sha256", "local_path")})
+        metadata["raw_source_validation"] = "performed_for_target_cells"
+    else:
+        with (root / "data/processed/port_cabotage_cumulative.csv").open(encoding="utf-8-sig", newline="") as stream:
+            rows = [r for r in csv.DictReader(stream) if r["period"] in {"2026-08", "2026-09"}
+                    and r["port"] == port and r["cargo_group"] == cargo and r["measurement_scope"] == "port_total"]
+    return rows, metadata
