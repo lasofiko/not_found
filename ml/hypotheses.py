@@ -11,6 +11,14 @@ from pathlib import Path
 from statistics import mean, median
 
 from ml.experiment_io import fingerprint, finish_manifest
+from ml.predict import forecast
+from ml.research_inputs import (
+    ACTION_FIELDS,
+    action_scenarios,
+    load_facts,
+    load_repairs,
+    research_rows,
+)
 from pipeline.common import ROOT, write_csv
 
 FLEET_PATH = Path(__file__).with_name("inputs") / "ferry_fleet_monthly.csv"
@@ -19,7 +27,7 @@ WEATHER_POINT = "Балтийск"
 STRONG_WIND_KMH = (40, 50)
 MAIN_FERRIES = (3, 4)
 MONTH_DAYS = 30.4375
-AMBAL_REPAIR_DAYS = 73  # 1 мая – 13 июля 2026, публикации Оборонлогистики
+AMBAL_REPAIR_DAYS = 67  # 1 мая – первый рейс 7 июля 2026, ml/inputs/ferry_repairs.csv
 TERMINAL_DESIGN_TONNES_MONTH = 439_350  # PDF Росморпорта «Балтийск», октябрь 2026
 TERMINAL_LOAD_TONNES_MONTH = 147_300  # тот же PDF
 CROSSING_HOURS = (38, 45)
@@ -256,7 +264,7 @@ def results(
         {
             "hypothesis_id": "reserve_ferry",
             "hypothesis": "Резервный паром на время ремонтов",
-            "indicator": "Потенциал на ремонт «Амбала», 73 дня",
+            "indicator": f"Потенциал на ремонт «Амбала», {AMBAL_REPAIR_DAYS} дней",
             "low": low * repair,
             "central": central * repair,
             "high": high * repair,
@@ -379,7 +387,48 @@ def _number(value, digits: int = 0) -> str:
     return "—" if value is None else f"{value:,.{digits}f}".replace(",", " ")
 
 
-def report_text(version: str, data_version: str, panel: list[dict], regression: list[dict], outcome: list[dict]) -> str:
+def _research_section(scenarios: list[dict], facts: dict) -> list[str]:
+    checked = sum(f["verification"] == "checked_search" for f in facts.values())
+    lines = [
+        "## Новые открытые данные (ноябрь 2026)",
+        "",
+        f"`ml/inputs/research_facts_2026.csv` содержит {len(facts)} фактов: {checked} сверены с результатами поиска, "
+        f"{len(facts) - checked} перенесены из отчёта и в расчёт не входят. "
+        "Источники ещё не внесены в реестр; статус `pending`.",
+        "",
+    ]
+    if not scenarios:
+        return lines + ["Сценарии по годам не рассчитаны: нет `models/latest.json`, сначала запустите `ml.run`.", ""]
+    year = "2027"
+    lines += [
+        f"## Нагрузка и провозная возможность, ввоз, {year}",
+        "",
+        "Провозная возможность — наибольший наблюдённый год линии, а не паспортная мощность. "
+        "Спрос ×1.5 и ×2 — масштаб из заявлений за прошлые годы, а не измерение.",
+        "",
+        "| Спрос | Нагрузка, т | Действие | Возможность, т | Непокрыто, т "
+        "| С учётом ж/д предела: возможность, т | Непокрыто, т |",
+        "|---|---:|---|---:|---:|---:|---:|",
+    ]
+    for r in scenarios:
+        if r["year"] == year and r["direction"] == "inbound":
+            lines.append(
+                f"| {r['demand_case']} | {_number(r['load_tonnes'])} | {r['action']} "
+                f"| {_number(r['capacity_action_tonnes'])} | {_number(r['shortfall_action_tonnes'])} "
+                f"| {_number(r['capacity_rail_limited_tonnes'])} | {_number(r['shortfall_rail_limited_tonnes'])} |"
+            )
+    return lines + ["", "Все годы и оба направления — `action_scenarios.csv`.", ""]
+
+
+def report_text(
+    version: str,
+    data_version: str,
+    panel: list[dict],
+    regression: list[dict],
+    outcome: list[dict],
+    scenarios: list[dict] | None = None,
+    facts: dict | None = None,
+) -> str:
     per_ferry = [r["tonnes_per_ferry"] for r in panel if r["in_main_sample"]]
     q1, q3 = _quantile_range(per_ferry)
     lines = [
@@ -421,6 +470,7 @@ def report_text(version: str, data_version: str, panel: list[dict], regression: 
         "",
         "Тоннаж с января по май 2025 включает линию на Пионерский. Часть значений — нижние границы; их влияние показано в строгой выборке.",
         "",
+        *_research_section(scenarios or [], facts or {}),
         "## Участие ИИ",
         "",
         "Модуль и расчёт подготовил ИИ. Интерпретацию и применимость должен подтвердить человек.",
@@ -446,23 +496,59 @@ def run_hypotheses(root: Path = ROOT) -> dict:
     if not any(r["in_main_sample"] for r in panel):
         raise ValueError("Нет месяцев с 3–4 паромами для расчёта.")
     regression = regressions(panel)
+    candidate = _read(processed / "candidate_observations.csv")
     outcome = results(
         panel,
         regression,
-        _read(processed / "candidate_observations.csv"),
+        candidate,
         _read(processed / "port_cabotage_monthly.csv"),
         _line_comparison(root),
     )
+    facts, repairs = load_facts(), load_repairs()
+    main = next(r for r in regression if r["sample"] == "main_3_4_ferries" and r["model"] == "ferries_plus_wind")
+    extra = research_rows(
+        panel,
+        candidate,
+        _read(processed / "supplemental_freight.csv"),
+        facts,
+        repairs,
+        (main["ferries_ci_low"], main["ferries_coef_tonnes"], main["ferries_ci_high"]),
+        INDIRECT,
+        SCENARIO,
+    )
+    position = next(i for i, r in enumerate(outcome) if r["hypothesis_id"] == "phased_investment")
+    outcome[position:position] = extra
+    scenarios = []
+    if (root / "models/latest.json").is_file():
+        reserve_gain = next(r["central"] for r in extra if r["indicator"].startswith("Доля судо-дней")) / 100
+        scenarios = action_scenarios(
+            {d: forecast(d, 2030, root=root) for d in ("inbound", "outbound")},
+            candidate,
+            facts,
+            reserve_gain,
+            turnaround_gain(*CENTRAL_TURNAROUND),
+        )
     version, _ = fingerprint(
-        "bb-hyp-", {"data_version": data_version, "fleet": fleet, "panel": panel}, [Path(__file__)]
+        "bb-hyp-",
+        {
+            "data_version": data_version,
+            "fleet": fleet,
+            "panel": panel,
+            "facts": facts,
+            "repairs": [{**r, "start": str(r["start"]), "end": str(r["end"])} for r in repairs],
+            "scenarios": scenarios,
+        },
+        [Path(__file__), Path(__file__).with_name("research_inputs.py")],
     )
     output = root / OUTPUT_DIR / version
     output.mkdir(parents=True, exist_ok=True)
     write_csv(output / "ferry_month_panel.csv", PANEL_FIELDS, panel)
     write_csv(output / "fleet_regression.csv", REGRESSION_FIELDS, regression)
     write_csv(output / "hypothesis_results.csv", RESULT_FIELDS, outcome)
+    if scenarios:
+        write_csv(output / "action_scenarios.csv", ACTION_FIELDS, scenarios)
     (output / "hypotheses-report.md").write_text(
-        report_text(version, data_version, panel, regression, outcome), encoding="utf-8"
+        report_text(version, data_version, panel, regression, outcome, scenarios, facts), encoding="utf-8"
     )
     finish_manifest(
         output, {"report_version": version, "data_version": data_version, "status": "indirect_estimates_only"}
