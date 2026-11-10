@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, ArrowUpRight, BarChart3, Box, CheckCircle2, Clock3,
+  ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Box, CheckCircle2, Clock3,
   Database, Download, Info, Layers3, LayoutDashboard, MapPin,
-  Menu, Moon, RotateCcw, Route, Send, Sparkles, Sun, Truck, X,
+  Menu, Moon, Paperclip, RotateCcw, Route, Sparkles, Sun, Truck, X,
 } from 'lucide-react'
 import { DynamicsChart, HypothesisChart, VolumeChart } from './ChartPanels'
 import {
@@ -22,8 +22,17 @@ import { DEFAULT_GEOGRAPHY, CORRIDORS, isDemoAvailable, mapLinks, routeSelection
 import './App.css'
 
 const copyConfig = (config: ForecastConfig): ForecastConfig => ({ ...config })
+function formatTime(date: Date = new Date()): string {
+  return date.toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 type Theme = 'dark' | 'light'
-type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
+type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string; createdAt: string }
 
 const navItems = [
   { id: 'overview', label: 'Обзор', icon: LayoutDashboard },
@@ -281,10 +290,11 @@ export default function App() {
     setChatError(null)
     try {
       const answer = await callAssistant('summary')
+      const now = formatTime()
       setChatHistory((prev) => [
         ...prev,
-        { role: 'system', content: 'Автоматическая сводка по данным дашборда' },
-        { role: 'assistant', content: answer },
+        { role: 'system', content: 'Автоматическая сводка по данным дашборда', createdAt: now },
+        { role: 'assistant', content: answer, createdAt: now },
       ])
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'Не удалось получить сводку')
@@ -305,11 +315,12 @@ export default function App() {
     if (!question || isLoading) return
     setQuestionInput('')
     setChatError(null)
-    setChatHistory((prev) => [...prev, { role: 'user', content: question }])
+    const now = formatTime()
+    setChatHistory((prev) => [...prev, { role: 'user', content: question, createdAt: now }])
     setIsLoading(true)
     try {
       const answer = await callAssistant('ask', { question })
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: answer }])
+      setChatHistory((prev) => [...prev, { role: 'assistant', content: answer, createdAt: formatTime() }])
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'Не удалось получить ответ')
       setQuestionInput(question)
@@ -447,11 +458,9 @@ export default function App() {
           <Sparkles size={22} />
           <div>
             <h2>AI-ассистент</h2>
-            <p>Подключён к основному backend</p>
+            <p>Yandex AI Studio · через backend</p>
           </div>
-          <div className="assistant-header-actions">
-            <button className="assistant-icon-button assistant-close" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента"><X size={24} /></button>
-          </div>
+          <button className="assistant-close" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента"><X size={24} /></button>
         </header>
 
         <div className="assistant-context">
@@ -470,16 +479,20 @@ export default function App() {
             </div>
           )}
           {chatHistory.map((message, index) => (
-            <div
-              key={index}
-              className={`chat-message ${message.role}`}
-              dangerouslySetInnerHTML={{
-                __html:
-                  message.role === 'assistant'
-                    ? formatAnswer(message.content)
-                    : escapeHtml(message.content),
-              }}
-            />
+            <div key={index} className={`chat-message ${message.role}`}>
+              <div
+                className="chat-message-content"
+                dangerouslySetInnerHTML={{
+                  __html:
+                    message.role === 'assistant'
+                      ? formatAnswer(message.content)
+                      : escapeHtml(message.content),
+                }}
+              />
+              {message.role !== 'system' && (
+                <span className="chat-message-time">{message.createdAt}</span>
+              )}
+            </div>
           ))}
           {isLoading && (
             <div className="chat-loading" aria-label="Ассистент печатает">
@@ -492,26 +505,36 @@ export default function App() {
 
         {chatError && <div className="chat-error" role="alert">{chatError}</div>}
 
-        <form className="chat-input-area" onSubmit={handleAsk}>
-          <textarea
-            className="chat-input"
-            value={questionInput}
-            onChange={(event) => setQuestionInput(event.target.value)}
-            placeholder={apiBase ? 'Введите вопрос по данным дашборда…' : 'API не настроен'}
-            disabled={!apiBase || isLoading}
-            rows={3}
-            aria-label="Вопрос ассистенту"
-          />
+        <div className="chat-footer">
           <button
-            className="chat-submit"
-            type="submit"
-            disabled={!apiBase || isLoading || questionInput.trim().length === 0}
-            aria-label="Отправить вопрос"
+            className="chat-clear"
+            type="button"
+            onClick={() => { summaryRequestedRef.current = false; setChatHistory([]); setChatError(null) }}
           >
-            <Send size={14} /> Отправить
+            Хотите начать заново? <span>Очистить чат</span>
           </button>
+          <form className="chat-input-area" onSubmit={handleAsk}>
+            <Paperclip size={18} />
+            <input
+              className="chat-input"
+              type="text"
+              value={questionInput}
+              onChange={(event) => setQuestionInput(event.target.value)}
+              placeholder={apiBase ? 'Введите сообщение' : 'API не настроен'}
+              disabled={!apiBase || isLoading}
+              aria-label="Вопрос ассистенту"
+            />
+            <button
+              className="chat-submit"
+              type="submit"
+              disabled={!apiBase || isLoading || questionInput.trim().length === 0}
+              aria-label="Отправить вопрос"
+            >
+              <ArrowUp size={18} />
+            </button>
+          </form>
           <span className="chat-hint">Ответ формируется по переданному контексту. Это не наблюдение, прогноз или сценарный расчёт.</span>
-        </form>
+        </div>
       </aside>
     </div>
   )
