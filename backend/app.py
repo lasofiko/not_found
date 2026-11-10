@@ -52,6 +52,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(application)
     application.include_router(router, prefix=config.api_prefix)
 
+    @application.middleware("http")
+    async def frontend_update_headers(request, call_next):
+        response = await call_next(request)
+        if request.url.path in {
+            "/dashboard/",
+            "/dashboard/index.html",
+            "/dashboard/sw.js",
+            "/dashboard/registerSW.js",
+            "/dashboard/manifest.webmanifest",
+        }:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @application.get("/", include_in_schema=False)
     def home() -> FileResponse:
         return FileResponse(FRONTEND / "capacity.html")

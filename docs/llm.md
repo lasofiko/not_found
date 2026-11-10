@@ -63,9 +63,9 @@ frontend/src/App.tsx
 Добавьте в `.env` (скопируйте из `.env.example`):
 
 ```bash
-BB_LLM_BASE_URL=https://llm.api.cloud.yandex.net/v1
+BB_LLM_BASE_URL=https://ai.api.cloud.yandex.net/v1
 BB_LLM_API_KEY=your-secret-key
-BB_LLM_MODEL=your-model-name
+BB_LLM_MODEL=gpt://<folder_id>/deepseek-v4-flash
 BB_LLM_TIMEOUT_SECONDS=60
 ```
 
