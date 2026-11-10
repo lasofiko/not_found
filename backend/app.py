@@ -3,9 +3,10 @@
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.api.router import router
 from backend.core.exceptions import register_exception_handlers
@@ -32,7 +33,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/", include_in_schema=False)
     def home() -> FileResponse:
-        return FileResponse(FRONTEND / "index.html")
+        return FileResponse(FRONTEND / "capacity.html")
+
+    @application.get("/capacity", include_in_schema=False)
+    def capacity_page() -> FileResponse:
+        return FileResponse(FRONTEND / "capacity.html")
+
+    dashboard = FRONTEND / "dist"
+    if (dashboard / "index.html").is_file():
+        application.mount("/dashboard", StaticFiles(directory=dashboard, html=True), name="dashboard")
+    else:
+
+        @application.get("/dashboard/", include_in_schema=False)
+        def dashboard_unavailable() -> None:
+            raise HTTPException(
+                503, "Демо-интерфейс не собран. Выполните npm --prefix frontend run build и перезапустите сервер."
+            )
 
     @application.get("/frontend/app.js", include_in_schema=False)
     def frontend_script() -> FileResponse:

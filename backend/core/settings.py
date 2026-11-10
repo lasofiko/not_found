@@ -15,7 +15,7 @@ class Environment(StrEnum):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="BB_", extra="ignore")
 
-    app_name: str = Field(default="Not Found", min_length=1)
+    app_name: str = Field(default="FloCast", min_length=1)
     environment: Environment = Environment.development
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])

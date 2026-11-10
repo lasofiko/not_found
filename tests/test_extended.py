@@ -21,12 +21,12 @@ class ExtendedSourceTests(unittest.TestCase):
         self.artifact = {"source_id": "synthetic", "url": "https://example.test", "original_filename": "synthetic"}
 
     def test_real_html_form_captcha_script_is_not_a_block_page(self):
-        self.path.write_text('<html><head><title>Расписание</title><script src="captcha.js"></script></head><body>Расписание</body></html>')
+        self.path.write_text('<html><head><title>Расписание</title><script src="captcha.js"></script></head><body>Расписание</body></html>', encoding="utf-8")
         validate_download(self.path, "html")
-        self.path.write_text('<html><title>Just a moment...</title>Verify you are human</html>')
+        self.path.write_text('<html><title>Just a moment...</title>Verify you are human</html>', encoding="utf-8")
         with self.assertRaises(ValueError):
             validate_download(self.path, "html")
-        self.path.write_text('<html><title>Данные</title>Таблицы</html>')
+        self.path.write_text('<html><title>Данные</title>Таблицы</html>', encoding="utf-8")
         with self.assertRaises(ValueError):
             validate_download(self.path, "pdf")
 
@@ -53,7 +53,7 @@ class ExtendedSourceTests(unittest.TestCase):
         self.assertEqual(rows[-1]['value'],'-5')
         self.assertEqual(rows[-1]['requested_latitude'],'54.71')
         self.assertEqual(rows[-1]['grid_latitude'],'54.72')
-        self.path.write_text(self.path.read_text()+'2024-02-29,0,10,-5\n')
+        self.path.write_text(self.path.read_text(encoding="utf-8")+'2024-02-29,0,10,-5\n', encoding="utf-8")
         with self.assertRaises(ValueError):weather(self.path,self.artifact,'test')
 
     def test_border_2026_does_not_invent_months_after_september(self):
@@ -93,7 +93,7 @@ class ExtendedSourceTests(unittest.TestCase):
     def test_belarus_uses_only_transit_and_keeps_ambiguous_cell_missing(self):
         table='<table><tr><td>Год</td>'+''.join(f'<td>{m}</td>' for m in ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'])+'</tr>'
         table+=''.join('<tr><td>'+year+'</td>'+''.join('<td>'+('327.442' if year=='2023' and m==10 else '123')+'</td>' for m in range(1,13))+'</tr>' for year in ['2022','2023','2024'])+'</table>'
-        self.path.write_text('<html><p>15.2.1. Ввоз (импорт):</p>'+table+'<p>15.2.3. Транзит в Калининградскую область:</p>'+table+'<p>15.2.4. Транзит из Калининградской области:</p>'+table+'</html>')
+        self.path.write_text('<html><p>15.2.1. Ввоз (импорт):</p>'+table+'<p>15.2.3. Транзит в Калининградскую область:</p>'+table+'<p>15.2.4. Транзит из Калининградской области:</p>'+table+'</html>', encoding="utf-8")
         result,_=belarus_transit(self.path,self.artifact,'test')
         self.assertEqual(len(result),72)
         disputed=[r for r in result if r['period']=='2023-10']

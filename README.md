@@ -1,4 +1,6 @@
-# Not Found
+# FloCast
+
+Продукт команды **Not Found**.
 
 Инструмент исследования грузов **между Калининградской областью и основной частью РФ** и транспортных сценариев. История, прогноз и сценарная потребность показываются отдельно. Подтверждённого полного целевого ряда всего коридора пока нет.
 
@@ -16,9 +18,9 @@ Copy-Item .env.example .env
 uvicorn backend.app:app --reload
 ```
 
-Откройте `http://127.0.0.1:8000`. Swagger: `http://127.0.0.1:8000/docs`. При совместном размещении страница читает `GET /config.json`: backend отдаёт фактический `BB_API_PREFIX`, поэтому после изменения префикса и перезапуска сервера JavaScript править не нужно. Этот маршрут отличается от аналитического `/api/v1/config`.
+Откройте `http://127.0.0.1:8000` (калькулятор мощности). React-демо после сборки и перезапуска backend: `http://127.0.0.1:8000/dashboard/`. Для сборки нужен Node 22.12+ или 24: `npm --prefix frontend ci --ignore-scripts`, затем `npm --prefix frontend run build`. Все числа React-демо синтетические; модель не вызывается. Swagger: `http://127.0.0.1:8000/docs`. При совместном размещении страница читает `GET /config.json`: backend отдаёт фактический `BB_API_PREFIX`, поэтому после изменения префикса и перезапуска сервера JavaScript править не нужно. Этот маршрут отличается от аналитического `/api/v1/config`.
 
-Для отдельного размещения Frontend отредактируйте `frontend/config.json`: укажите абсолютный базовый URL backend с префиксом API, например `{"apiBase":"http://127.0.0.1:8000/api/v1"}`. Запустите из корня репозитория `python -m http.server 5173 --directory frontend` и откройте `http://127.0.0.1:5173`. Добавьте точный origin `http://127.0.0.1:5173` в JSON-массив `BB_CORS_ORIGINS`, затем перезапустите backend. Для другого `BB_API_PREFIX` обновите только `apiBase` в файле отдельного Frontend. Если конфигурация или API недоступны, страница показывает сообщение об ошибке и не отправляет расчёт без настроенного адреса.
+Для отдельного размещения Frontend отредактируйте `frontend/config.json`: укажите абсолютный базовый URL backend с префиксом API, например `{"apiBase":"http://127.0.0.1:8000/api/v1"}`. Запустите из корня репозитория `python -m http.server 5173 --directory frontend` и откройте `http://127.0.0.1:5173/capacity.html`. Добавьте точный origin `http://127.0.0.1:5173` в JSON-массив `BB_CORS_ORIGINS`, затем перезапустите backend. Для другого `BB_API_PREFIX` обновите только `apiBase` в файле отдельного Frontend. Если конфигурация или API недоступны, страница показывает сообщение об ошибке и не отправляет расчёт без настроенного адреса.
 
 `GET /api/v1/health` возвращает `service: not-found-backend` и проверяет только работу сервера. `GET /api/v1/config` отдаёт проектные варианты отдельно от реально доступных функций. `GET /api/v1/status` сообщает, что данные, ML и полноценные сценарии ещё не подключены: `components.ml: not_connected`, `capabilities.forecast: false`. Это состояние HTTP-приложения сохраняется и при наличии локального кода или отдельно созданной модели. Примеры:
 
@@ -39,6 +41,12 @@ python -m pytest backend/tests -q
 python -m ruff check backend
 python -m ruff format --check backend
 node --check frontend/app.js
+cd frontend
+npm ci --ignore-scripts
+npm run lint
+npm test
+npm run build
+cd ..
 ```
 
 Полный набор, включая ETL и ML, требует дополнительных зависимостей:

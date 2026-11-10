@@ -48,6 +48,7 @@ def encode_record(row):
 
 def snapshot_csv(source, target, name, limit=PART_BYTES):
     """Разрезаем только между CSV-записями, включая записи с переводами строк."""
+    target = target.resolve()
     original_sha = digest(source)
     with source.open("rb") as stream:
         bom = codecs.BOM_UTF8 if stream.read(3) == codecs.BOM_UTF8 else b""
