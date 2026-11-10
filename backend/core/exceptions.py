@@ -8,6 +8,12 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from backend.schemas.common import ErrorBody, ErrorResponse
+from backend.use_cases.llm import (
+    LLMDataNotFoundError,
+    LLMNotConfiguredError,
+    LLMUpstreamError,
+    LLMValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,22 @@ def register_exception_handlers(app: FastAPI) -> None:
         code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(exc.status_code, "HTTP_ERROR")
         message = {404: "Маршрут не найден", 405: "Метод не поддерживается"}.get(exc.status_code, str(exc.detail))
         return error_response(exc.status_code, code, message)
+
+    @app.exception_handler(LLMValidationError)
+    async def llm_validation_error(_request: Request, exc: LLMValidationError) -> JSONResponse:
+        return error_response(422, "VALIDATION_ERROR", str(exc))
+
+    @app.exception_handler(LLMDataNotFoundError)
+    async def llm_data_not_found_error(_request: Request, exc: LLMDataNotFoundError) -> JSONResponse:
+        return error_response(404, "LLM_DATA_NOT_FOUND", str(exc))
+
+    @app.exception_handler(LLMNotConfiguredError)
+    async def llm_not_configured_error(_request: Request, exc: LLMNotConfiguredError) -> JSONResponse:
+        return error_response(503, "LLM_NOT_CONFIGURED", str(exc))
+
+    @app.exception_handler(LLMUpstreamError)
+    async def llm_upstream_error(_request: Request, exc: LLMUpstreamError) -> JSONResponse:
+        return error_response(502, "LLM_UPSTREAM_ERROR", str(exc))
 
     @app.exception_handler(Exception)
     async def internal_error(_request: Request, exc: Exception) -> JSONResponse:

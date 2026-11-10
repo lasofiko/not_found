@@ -20,6 +20,23 @@ uvicorn backend.app:app --reload
 
 Откройте `http://127.0.0.1:8000` (калькулятор мощности). React-демо после сборки и перезапуска backend: `http://127.0.0.1:8000/dashboard/`. Для сборки нужен Node 22.12+ или 24: `npm --prefix frontend ci --ignore-scripts`, затем `npm --prefix frontend run build`. Все числа React-демо синтетические; модель не вызывается. Swagger: `http://127.0.0.1:8000/docs`. При совместном размещении страница читает `GET /config.json`: backend отдаёт фактический `BB_API_PREFIX`, поэтому после изменения префикса и перезапуска сервера JavaScript править не нужно. Этот маршрут отличается от аналитического `/api/v1/config`.
 
+### AI-ассистент
+
+В React-демо встроена панель ассистента. Она обращается к основному backend:
+`GET /api/v1/llm/summary` и `POST /api/v1/llm/ask`. Для работы ассистента
+нужно задать в `.env`:
+
+```bash
+BB_LLM_BASE_URL=https://llm.api.cloud.yandex.net/v1
+BB_LLM_API_KEY=your-secret-key
+BB_LLM_MODEL=your-model-name
+```
+
+Ключ хранится только на сервере (`SecretStr`). Без настроек ассистент
+возвращает понятную ошибку в интерфейсе, а остальной backend работает.
+Контекст для модели кладётся в `backend/jsons/*.json`. Подробнее:
+[`docs/llm.md`](docs/llm.md).
+
 Для отдельного размещения Frontend отредактируйте `frontend/config.json`: укажите абсолютный базовый URL backend с префиксом API, например `{"apiBase":"http://127.0.0.1:8000/api/v1"}`. Запустите из корня репозитория `python -m http.server 5173 --directory frontend` и откройте `http://127.0.0.1:5173/capacity.html`. Добавьте точный origin `http://127.0.0.1:5173` в JSON-массив `BB_CORS_ORIGINS`, затем перезапустите backend. Для другого `BB_API_PREFIX` обновите только `apiBase` в файле отдельного Frontend. Если конфигурация или API недоступны, страница показывает сообщение об ошибке и не отправляет расчёт без настроенного адреса.
 
 `GET /api/v1/health` возвращает `service: not-found-backend` и проверяет только работу сервера. `GET /api/v1/config` отдаёт проектные варианты отдельно от реально доступных функций. `GET /api/v1/status` сообщает, что данные, ML и полноценные сценарии ещё не подключены: `components.ml: not_connected`, `capabilities.forecast: false`. Это состояние HTTP-приложения сохраняется и при наличии локального кода или отдельно созданной модели. Примеры:
@@ -47,6 +64,13 @@ npm run lint
 npm test
 npm run build
 cd ..
+```
+
+LLM-тесты используют mock-сервер и fake gateway/repository, реальный
+провайдер не вызывается:
+
+```bash
+python -m pytest backend/tests/test_llm_*.py -q
 ```
 
 Полный набор, включая ETL и ML, требует дополнительных зависимостей:

@@ -59,7 +59,19 @@ HTTP 200:
 
 ### `GET /config.json` для Frontend
 
-При совместном размещении backend возвращает HTTP 200 и JSON `{"apiBase":"/api/v1"}`, где значение соответствует текущему `BB_API_PREFIX`. Это настройка адреса, а не аналитический `GET /api/v1/config`. При отдельном размещении Frontend читает свой файл `config.json` с тем же полем `apiBase`; значение должно быть абсолютным HTTP(S) URL backend с префиксом API, например `http://127.0.0.1:8000/api/v1`. Интерфейс использует этот адрес для `POST /scenarios/capacity` и показывает ошибку, если конфигурация или API недоступны. Отдельный origin добавляется в `BB_CORS_ORIGINS`.
+При совместном размещении backend возвращает HTTP 200 и JSON `{"apiBase":"/api/v1"}`, где значение соответствует текущему `BB_API_PREFIX`. Это настройка адреса, а не аналитический `GET /api/v1/config`. При отдельном размещении Frontend читает свой файл `config.json` с тем же полем `apiBase`; значение должно быть абсолютным HTTP(S) URL backend с префиксом API, например `http://127.0.0.1:8000/api/v1`. Интерфейс использует этот адрес для `POST /scenarios/capacity`, `/api/v1/llm/summary` и `/api/v1/llm/ask` и показывает ошибку, если конфигурация или API недоступны. Отдельный origin добавляется в `BB_CORS_ORIGINS`.
+
+### `GET /llm/summary`
+
+HTTP 200: `{"answer":"..."}`. Формирует автоматическую сводку по JSON-контексту из `backend/jsons/`. Ответ LLM — интерпретация переданных данных, а не наблюдение, прогноз или сценарный расчёт.
+
+HTTP 404 / `LLM_DATA_NOT_FOUND` — нет JSON-файлов контекста. HTTP 503 / `LLM_NOT_CONFIGURED` — не заданы `BB_LLM_BASE_URL`, `BB_LLM_API_KEY` или `BB_LLM_MODEL`. HTTP 502 / `LLM_UPSTREAM_ERROR` — ошибка или недоступность LLM-провайдера.
+
+### `POST /llm/ask`
+
+Тело: `{"question":"..."}`. Вопрос обрезается (`strip()`), должен содержать от 1 до 4000 символов. HTTP 200: `{"answer":"..."}`. Ответ строится только по переданному контексту; модель не должна выдумывать показатели.
+
+HTTP 422 / `VALIDATION_ERROR` — пустой или слишком длинный вопрос. HTTP 404 / `LLM_DATA_NOT_FOUND`, HTTP 503 / `LLM_NOT_CONFIGURED`, HTTP 502 / `LLM_UPSTREAM_ERROR` — см. `/llm/summary`.
 
 ## Ошибки
 

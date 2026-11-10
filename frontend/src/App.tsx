@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowDownRight,
   ArrowLeftRight,
@@ -22,6 +22,7 @@ import {
   Moon,
   RotateCcw,
   Route,
+  Send,
   SlidersHorizontal,
   Sparkles,
   Sun,
@@ -47,31 +48,10 @@ import {
 import { createDemoReport } from './report'
 import './App.css'
 
-const copyConfig = (config: ForecastConfig): ForecastConfig => ({ ...config })
 type Theme = 'dark' | 'light'
-type AiStudioWidget = {
-  init: (config: {
-    channelId: string
-    locale: 'ru'
-    theme: 'light' | 'dark'
-    chatContainer: {
-      container: string
-      hideClose: boolean
-    }
-  }) => void
-  openChat: () => void
-  closeChat: () => void
-  update: (config: { theme: 'light' | 'dark' }) => void
-}
+type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 
-const AI_STUDIO_CHANNEL_ID = 'aacpim45iu5ubg29jt66'
-
-const getAiStudioWidget = () =>
-  (
-    window as Window & {
-      AiStudioChatWidget?: AiStudioWidget
-    }
-  ).AiStudioChatWidget
+const copyConfig = (config: ForecastConfig): ForecastConfig => ({ ...config })
 
 const navItems = [
   { id: 'overview', label: 'Обзор', icon: LayoutDashboard },
@@ -82,11 +62,16 @@ const navItems = [
   { id: 'about', label: 'О проекте', icon: Info },
 ]
 
-
 function Delta({ value, suffix = '%', inverse = false }: { value: number; suffix?: string; inverse?: boolean }) {
   const positive = value >= 0
   const favorable = inverse ? !positive : positive
   return <span className={`delta ${favorable ? 'delta-good' : 'delta-warn'}`}>{signed(value, suffix)}</span>
+}
+
+function escapeHtml(value: string): string {
+  const div = document.createElement('div')
+  div.textContent = value
+  return div.innerHTML
 }
 
 export default function App() {
@@ -99,7 +84,14 @@ export default function App() {
   const [activeNav, setActiveNav] = useState('overview')
   const [theme, setTheme] = useState<Theme>('light')
   const [notice, setNotice] = useState('Исходный синтетический пример')
-  const aiStudioMounted = useRef(false)
+
+  const [apiBase, setApiBase] = useState<string | null>(null)
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
+  const [questionInput, setQuestionInput] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
+
   const result = useMemo(() => selectDemoScenario(applied), [applied])
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied)
   const scenarioTitle = SCENARIOS.find((scenario) => scenario.id === applied.scenario)?.title ?? 'Базовый сценарий'
@@ -125,44 +117,98 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    const mountChat = () => {
-      const widget = getAiStudioWidget()
-      const container = document.getElementById('yandex-chat-container')
-
-      if (!widget || !container) return
-
-      widget.init({
-        channelId: AI_STUDIO_CHANNEL_ID,
-        locale: 'ru',
-        theme: document.documentElement.style.colorScheme === 'dark' ? 'dark' : 'light',
-        chatContainer: {
-          container: '#yandex-chat-container',
-          hideClose: true,
-        },
-      })
-
-      widget.openChat()
-      aiStudioMounted.current = true
+    async function loadConfig() {
+      try {
+        const response = await fetch(new URL('/config.json', window.location.origin), { cache: 'no-store' })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const config = await response.json()
+        const base = config.apiBase
+        if (typeof base !== 'string' ||
+            !(base.startsWith('/') && !base.startsWith('//') || /^https?:\/\//i.test(base))) {
+          throw new Error('Некорректный адрес API')
+        }
+        const url = new URL(base, window.location.origin)
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Некорректный адрес API')
+        setApiBase(url.href.replace(/\/+$/, ''))
+        setApiError(null)
+      } catch {
+        setApiBase(null)
+        setApiError('Не удалось загрузить адрес API. Проверьте config.json и доступность сервера.')
+      }
     }
-
-    if (getAiStudioWidget()) {
-      mountChat()
-    } else {
-      window.addEventListener('ai-studio-widget-ready', mountChat, { once: true })
-    }
-
-    return () => {
-      window.removeEventListener('ai-studio-widget-ready', mountChat)
-      getAiStudioWidget()?.closeChat()
-      aiStudioMounted.current = false
-    }
+    loadConfig()
   }, [])
 
-  useEffect(() => {
-    if (aiStudioMounted.current) {
-      getAiStudioWidget()?.update({ theme: theme === 'dark' ? 'dark' : 'light' })
+  const callAssistant = useCallback(async (endpoint: 'summary' | 'ask', body?: { question: string }) => {
+    if (!apiBase) {
+      throw new Error(apiError || 'Адрес API не настроен')
     }
-  }, [theme])
+    const url = `${apiBase}/llm/${endpoint}`
+    const response = await fetch(url, {
+      method: endpoint === 'summary' ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    let data: unknown
+    try {
+      data = await response.json()
+    } catch {
+      throw new Error('Сервер вернул некорректный JSON-ответ')
+    }
+    if (!response.ok) {
+      const error = (data as { error?: { message?: string; code?: string } } | undefined)?.error
+      const message = error?.message || `Ошибка API (${response.status})`
+      throw new Error(message)
+    }
+    const answer = (data as { answer?: string } | undefined)?.answer
+    if (typeof answer !== 'string') {
+      throw new Error('Сервер вернул ответ без поля answer')
+    }
+    return answer
+  }, [apiBase, apiError])
+
+  const fetchSummary = useCallback(async () => {
+    if (!assistantOpen || isLoading) return
+    setIsLoading(true)
+    setChatError(null)
+    try {
+      const answer = await callAssistant('summary')
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'system', content: 'Автоматическая сводка по данным дашборда' },
+        { role: 'assistant', content: answer },
+      ])
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Не удалось получить сводку')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [assistantOpen, isLoading, callAssistant])
+
+  useEffect(() => {
+    if (assistantOpen && chatHistory.length === 0 && !isLoading && !chatError) {
+      fetchSummary()
+    }
+  }, [assistantOpen, chatHistory.length, isLoading, chatError, fetchSummary])
+
+  async function handleAsk(event: React.FormEvent) {
+    event.preventDefault()
+    const question = questionInput.trim()
+    if (!question || isLoading) return
+    setQuestionInput('')
+    setChatError(null)
+    setChatHistory((prev) => [...prev, { role: 'user', content: question }])
+    setIsLoading(true)
+    try {
+      const answer = await callAssistant('ask', { question })
+      setChatHistory((prev) => [...prev, { role: 'assistant', content: answer }])
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Не удалось получить ответ')
+      setQuestionInput(question)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const calculate = () => {
     setApplied(copyConfig(draft))
@@ -188,7 +234,6 @@ export default function App() {
   }
 
   const insight = 'Синтетические примеры для проверки интерфейса. Эффекты действий и два основных сценария командой не утверждены.'
-
 
   return (
     <div className={`app-shell ${theme}-theme`}>
@@ -458,7 +503,7 @@ export default function App() {
                 <span><strong>{formatNumber(result.hypotheses[2].volume)}</strong> тыс. т/сутки</span>
                 <span><strong>{formatNumber(result.hypotheses[2].time)}</strong> {result.timeUnit}</span>
               </div>
-              <button type="button" className="insight-action" onClick={() => { setAssistantOpen(true); document.querySelector<HTMLIFrameElement>('#yandex-chat-container iframe')?.focus() }}>
+              <button type="button" className="insight-action" onClick={() => setAssistantOpen(true)}>
                 Обсудить с ассистентом <ArrowRight size={15} />
               </button>
             </article>
@@ -513,23 +558,69 @@ export default function App() {
           <div className="assistant-title-icon"><Sparkles size={20} /></div>
           <div>
             <h2>AI-ассистент</h2>
-            <p><span />Yandex AI Studio</p>
+            <p><span />Подключён к основному backend</p>
           </div>
           <div className="assistant-header-actions">
+            <button
+              className="assistant-text-button"
+              type="button"
+              onClick={() => { setChatHistory([]); setChatError(null) }}
+              disabled={isLoading || !apiBase}
+              aria-label="Сделать новую сводку"
+            >
+              Сводка
+            </button>
             <button className="assistant-icon-button assistant-close" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента"><X size={19} /></button>
           </div>
         </header>
 
         <div className="assistant-context">
           <div><MapPin size={15} /><span>{DIRECTION_LABELS[applied.direction]}</span><span className="context-separator">·</span><span>2030</span></div>
-          <p>Море · синтетика · {modeLabel}</p>
+          <p>{modeLabel}</p>
         </div>
 
-        <div
-          id="yandex-chat-container"
-          className="yandex-chat-container"
-          aria-label="Диалог с AI-ассистентом"
-        />
+        <div className="chat-messages" aria-live="polite" aria-label="История диалога">
+          {chatHistory.length === 0 && !isLoading && !chatError && (
+            <div className="chat-message system">Нажмите «Сводка», чтобы получить автоматическую сводку</div>
+          )}
+          {chatHistory.map((message, index) => (
+            <div
+              key={index}
+              className={`chat-message ${message.role}`}
+              dangerouslySetInnerHTML={{ __html: escapeHtml(message.content) }}
+            />
+          ))}
+          {isLoading && (
+            <div className="chat-loading" aria-label="Ассистент печатает">
+              <span className="chat-loading-dot" />
+              <span className="chat-loading-dot" />
+              <span className="chat-loading-dot" />
+            </div>
+          )}
+        </div>
+
+        {chatError && <div className="chat-error" role="alert">{chatError}</div>}
+
+        <form className="chat-input-area" onSubmit={handleAsk}>
+          <textarea
+            className="chat-input"
+            value={questionInput}
+            onChange={(event) => setQuestionInput(event.target.value)}
+            placeholder={apiBase ? 'Введите вопрос по данным дашборда…' : 'API не настроен'}
+            disabled={!apiBase || isLoading}
+            rows={3}
+            aria-label="Вопрос ассистенту"
+          />
+          <button
+            className="chat-submit"
+            type="submit"
+            disabled={!apiBase || isLoading || questionInput.trim().length === 0}
+            aria-label="Отправить вопрос"
+          >
+            <Send size={14} /> Отправить
+          </button>
+          <span className="chat-hint">Ответ формируется по переданному контексту. Это не наблюдение, прогноз или сценарный расчёт.</span>
+        </form>
       </aside>
     </div>
   )
