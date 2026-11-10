@@ -381,3 +381,5 @@ section[id], main[id] { scroll-margin-top: 20px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+.demo-disclaimer { padding: 16px; border: 1px solid var(--action-primary); border-radius: 12px; line-height: 1.6; }

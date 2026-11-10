@@ -16,7 +16,9 @@ Copy-Item .env.example .env
 uvicorn backend.app:app --reload
 ```
 
-Откройте `http://127.0.0.1:8000`. Swagger: `http://127.0.0.1:8000/docs`. Для текущего Frontend базовый URL API — `http://127.0.0.1:8000/api/v1`; на том же сервере достаточно относительного `/api/v1` из `frontend/config.json`. Для отдельного Frontend укажите этот базовый URL в его настройках и добавьте точный origin в `BB_CORS_ORIGINS` (JSON-массив строк), затем перезапустите сервер. `BB_API_PREFIX` по умолчанию `/api/v1`; при его изменении обновите базовый URL Frontend.
+Откройте `http://127.0.0.1:8000` (калькулятор мощности). React-демо после сборки и перезапуска backend: `http://127.0.0.1:8000/dashboard/`. Для сборки нужен Node 22.12+ или 24: `npm --prefix frontend ci --ignore-scripts`, затем `npm --prefix frontend run build`. Все числа React-демо синтетические; модель не вызывается. Swagger: `http://127.0.0.1:8000/docs`. При совместном размещении страница читает `GET /config.json`: backend отдаёт фактический `BB_API_PREFIX`, поэтому после изменения префикса и перезапуска сервера JavaScript править не нужно. Этот маршрут отличается от аналитического `/api/v1/config`.
+
+Для отдельного размещения Frontend отредактируйте `frontend/config.json`: укажите абсолютный базовый URL backend с префиксом API, например `{"apiBase":"http://127.0.0.1:8000/api/v1"}`. Запустите из корня репозитория `python -m http.server 5173 --directory frontend` и откройте `http://127.0.0.1:5173/capacity.html`. Добавьте точный origin `http://127.0.0.1:5173` в JSON-массив `BB_CORS_ORIGINS`, затем перезапустите backend. Для другого `BB_API_PREFIX` обновите только `apiBase` в файле отдельного Frontend. Если конфигурация или API недоступны, страница показывает сообщение об ошибке и не отправляет расчёт без настроенного адреса.
 
 `GET /api/v1/health` проверяет только работу сервера. `GET /api/v1/config` отдаёт проектные варианты отдельно от реально доступных функций. `GET /api/v1/status` сообщает, что данные, ML и полноценные сценарии ещё не подключены. Примеры:
 
@@ -36,6 +38,13 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/status
 python -m pytest -q
 python -m ruff check backend
 python -m ruff format --check backend
+node --check frontend/app.js
+cd frontend
+npm ci --ignore-scripts
+npm run lint
+npm test
+npm run build
+cd ..
 ```
 
 Проверка таблицы наблюдений: `python -m pipeline.validate data/processed/observations.csv`. Пока файла нет, команда сообщит об этом: исходные данные не скопированы в репозиторий автоматически.
@@ -159,4 +168,4 @@ python -m jupyterlab notebooks/dataset_overview.ipynb
 
 Backend расширяется после приёмки данных, модели и сценарных параметров. При подключении соответствующие признаки в `/config` и `/status` должны определяться реальной доступностью, а не оставаться текущими значениями. Разработку каркаса и документации выполнил ИИ; человеку нужно проверить схемы, происхождение будущих чисел, запустить команды проверки и согласовать открытые решения перед сдачей.
 
-Подробности: [архитектура](docs/architecture.md), [контракты](docs/contracts.md), [план команды](docs/team-plan.md).
+Подробности: [контракты](docs/contracts.md), [план команды](docs/team-plan.md).

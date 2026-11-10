@@ -12,9 +12,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { calculateForecast } from './dashboard-data'
+import type { selectDemoScenario } from './dashboard-data'
 
-type Forecast = ReturnType<typeof calculateForecast>
+type Forecast = ReturnType<typeof selectDemoScenario>
 
 const getTooltipStyle = (light: boolean) => ({
   background: light ? '#FFFFFF' : '#0A2038',
@@ -51,7 +51,7 @@ export function VolumeChart({ data, light = false }: { data: Forecast['stacked']
 
   return (
     <div className="chart-wrap">
-      <div className="chart-canvas" role="img" aria-label="Столбчатый график объёма груза в 2025 и 2030 годах по видам транспорта">
+      <div className="chart-canvas" role="img" aria-label="Столбчатый график объёма груза в 2025 и 2030 годах для моря, synthetic, тыс. т/сутки">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 4, left: -22, bottom: 0 }} barCategoryGap="38%">
             <defs>
@@ -63,13 +63,11 @@ export function VolumeChart({ data, light = false }: { data: Forecast['stacked']
             <XAxis dataKey="year" axisLine={false} tickLine={false} tick={axisStyle} dy={6} />
             <YAxis axisLine={false} tickLine={false} tick={axisStyle} domain={[0, 'dataMax + 4']} />
             <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(45, 230, 224, 0.04)' }} formatter={(value) => [`${value} тыс. т/сутки`]} />
-            <Bar dataKey="Авто" stackId="volume" fill="url(#autoNeon)" isAnimationActive={false}><LabelList dataKey="Авто" position="center" fill="#03202A" fontSize={11} fontWeight={700} /></Bar>
-            <Bar dataKey="Ж/Д" stackId="volume" fill="url(#railNeon)" isAnimationActive={false}><LabelList dataKey="Ж/Д" position="center" fill="#F0F8FF" fontSize={11} fontWeight={600} /></Bar>
             <Bar dataKey="Море" stackId="volume" fill="url(#seaNeon)" radius={[6, 6, 0, 0]} isAnimationActive={false}><LabelList dataKey="Море" position="center" fill="#F7EEFF" fontSize={11} fontWeight={600} /></Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <ChartLegend items={[{ name: 'Авто', color: '#2DE6CF' }, { name: 'Ж/Д', color: '#4AA8FF' }, { name: 'Море', color: '#AC68F5' }]} />
+      <ChartLegend items={[{ name: 'Море · synthetic, тыс. т/сутки', color: '#AC68F5' }]} />
     </div>
   )
 }
@@ -81,7 +79,7 @@ export function DynamicsChart({ data, light = false }: { data: Forecast['dynamic
 
   return (
     <div className="chart-wrap">
-      <div className="chart-canvas" role="img" aria-label="Линейный график динамики объёма груза с 2025 по 2030 год для трёх сценариев">
+      <div className="chart-canvas" role="img" aria-label="Линейный график динамики объёма груза с 2025 по 2030 год для трёх синтетических примеров, тыс. т/сутки">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 10, left: -22, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="3 4" />

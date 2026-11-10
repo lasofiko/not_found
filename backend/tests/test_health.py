@@ -10,7 +10,7 @@ def test_health(client: TestClient) -> None:
     assert response.status_code == 200
     assert HealthResponse.model_validate(response.json()).model_dump() == {
         "status": "ok",
-        "service": "baltic-balance-backend",
+        "service": "not-found-backend",
         "api_version": "v1",
     }
 

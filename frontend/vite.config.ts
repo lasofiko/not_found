@@ -2,12 +2,10 @@ import path from 'path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import { inspectAttr } from 'kimi-plugin-inspect-react'
 
 export default defineConfig({
-  base: './',
+  base: '/dashboard/',
   plugins: [
-    inspectAttr(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -15,7 +13,7 @@ export default defineConfig({
       manifest: {
         name: 'FloCast',
         short_name: 'FloCast',
-        description: 'FloCast — сценарный прогноз грузовых перевозок Калининградской агломерации, команда Not Found',
+        description: 'FloCast — синтетические примеры грузовых перевозок коридора, команда Not Found',
         theme_color: '#030C1B',
         background_color: '#030C1B',
         display: 'standalone',
@@ -38,7 +36,8 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 3000,
+    port: 5173,
+    strictPort: true,
   },
   resolve: {
     alias: {

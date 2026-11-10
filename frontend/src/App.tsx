@@ -7,7 +7,6 @@ import {
   BarChart3,
   Box,
   CalendarDays,
-  Check,
   CheckCircle2,
   ChevronDown,
   CircleHelp,
@@ -37,21 +36,22 @@ import {
   DEFAULT_CONFIG,
   DIRECTIONS,
   SCENARIOS,
-  TRANSPORTS,
-  calculateForecast,
+  DIRECTION_LABELS,
+  selectDemoScenario,
   formatNumber,
   signed,
   type ForecastConfig,
   type Scenario,
 } from './dashboard-data'
+import { createDemoReport } from './report'
 import './App.css'
 
-const copyConfig = (config: ForecastConfig): ForecastConfig => ({ ...config, options: { ...config.options } })
+const copyConfig = (config: ForecastConfig): ForecastConfig => ({ ...config })
 type Theme = 'dark' | 'light'
 
 const navItems = [
   { id: 'overview', label: 'Обзор', icon: LayoutDashboard },
-  { id: 'forecast', label: 'Прогноз', icon: BarChart3 },
+  { id: 'forecast', label: 'Демо-пример', icon: BarChart3 },
   { id: 'scenarios', label: 'Сценарии', icon: Layers3 },
   { id: 'analytics', label: 'Аналитика', icon: TrendingUp },
   { id: 'data', label: 'Данные', icon: Database },
@@ -88,8 +88,8 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [activeNav, setActiveNav] = useState('overview')
   const [theme, setTheme] = useState<Theme>('dark')
-  const [notice, setNotice] = useState('Исходный демо-расчёт')
-  const result = useMemo(() => calculateForecast(applied), [applied])
+  const [notice, setNotice] = useState('Исходный синтетический пример')
+  const result = useMemo(() => selectDemoScenario(applied), [applied])
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied)
   const scenarioTitle = SCENARIOS.find((scenario) => scenario.id === applied.scenario)?.title ?? 'Базовый сценарий'
 
@@ -113,7 +113,7 @@ export default function App() {
 
   const calculate = () => {
     setApplied(copyConfig(draft))
-    setNotice('Прогноз обновлён')
+    setNotice('Синтетический пример выбран')
     setParamsOpen(false)
   }
 
@@ -124,38 +124,17 @@ export default function App() {
   }
 
   const exportReport = () => {
-    const rows = [
-      ['FloCast', ''],
-      ['Направление', applied.direction],
-      ['Транспорт', applied.transport],
-      ['Сценарий', scenarioTitle],
-      ['Объём груза к 2030, тыс. тонн/сутки', formatNumber(result.volume)],
-      ['Изменение объёма к 2025, %', String(result.volumeDelta)],
-      [`Время, ${result.timeUnit}`, formatNumber(result.time)],
-      ['Доступность городов, %', `+${result.access}`],
-      [`Загрузка терминала (${applied.direction}), %`, String(result.terminal)],
-      ['', ''],
-      ['Примечание', 'Все числа иллюстративные'],
-    ]
-    const csv = `\uFEFF${rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(';')).join('\n')}`
+    const csv = createDemoReport(applied)
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = `Прогноз_${applied.direction}_2030.csv`
+    link.download = `Синтетический_пример_${applied.direction}_2030.csv`
     link.click()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     setNotice('Отчёт CSV выгружен')
   }
 
-  const toggleOption = (option: keyof ForecastConfig['options']) => {
-    setDraft((current) => ({ ...current, options: { ...current.options, [option]: !current.options[option] } }))
-  }
-
-  const insight = applied.scenario === 'route'
-    ? 'Новый маршрут даёт наибольший прирост объёма и сокращает время в пути.'
-    : applied.scenario === 'capacity'
-      ? 'Дополнительная мощность ускоряет доставку без создания нового маршрута.'
-      : 'Новый маршрут даёт +35% к грузу, но требует проверки пропускной способности.'
+  const insight = 'Показаны заранее подготовленные синтетические примеры. Эффекты действий не оценивались; выбор двух действий и их параметров остаётся за командой.'
 
   return (
     <div className={`app-shell ${theme === 'light' ? 'light-theme' : ''}`}>
@@ -178,8 +157,8 @@ export default function App() {
         </nav>
         <div className="sidebar-footer">
           <div className="sidebar-orbit"><span /><span /><span /></div>
-          <div className="sidebar-location"><MapPin size={16} /><span>Калининградская<br />агломерация</span></div>
-          <small>Горизонт прогноза<br /><strong>2025–2030</strong></small>
+          <div className="sidebar-location"><MapPin size={16} /><span>Калининградская область<br />↔ основная часть РФ</span></div>
+          <small>Горизонт примера<br /><strong>2025–2030</strong></small>
         </div>
       </aside>
 
@@ -189,11 +168,11 @@ export default function App() {
             <button className="mobile-menu" aria-label="Открыть навигацию" onClick={() => setNavOpen(true)}><Menu size={22} /></button>
             <div className="page-heading">
               <h1>FloCast</h1>
-              <p>Калининградская агломерация <span>↔</span> 2025–2030</p>
+              <p>Калининградская область ↔ основная часть РФ <span>↔</span> 2025–2030</p>
             </div>
             <NeonWaves />
             <div className="topbar-actions">
-              <div className="demo-badge"><span className="pulse-dot" />Демо-данные</div>
+              <div className="demo-badge"><span className="pulse-dot" />Синтетические данные</div>
               <button
                 className="theme-toggle"
                 aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
@@ -211,7 +190,8 @@ export default function App() {
             </div>
           </header>
 
-          <section className="filter-section" aria-label="Параметры прогноза">
+          <p className="demo-disclaimer" role="note">Все числа — synthetic: вымышленные примеры, включая 2025 год. Это не наблюдения и не прогноз. Единицы: тыс. т/сутки, часы, %. Источника фактических данных нет.</p>
+          <section className="filter-section" aria-label="Параметры примера">
             <div className="quick-filters">
               <div className="filter-display">
                 <CalendarDays size={20} /><div><span>Горизонт</span><strong>2030 год</strong></div>
@@ -219,25 +199,12 @@ export default function App() {
               <label className="filter-control">
                 <ArrowLeftRight size={20} /><span className="filter-control-content"><span>Направление</span>
                   <select aria-label="Направление" id="direction" value={draft.direction} onChange={(event) => setDraft({ ...draft, direction: event.target.value as ForecastConfig['direction'] })}>
-                    {DIRECTIONS.map((direction) => <option key={direction}>{direction}</option>)}
+                    {DIRECTIONS.map((direction) => <option key={direction} value={direction}>{DIRECTION_LABELS[direction]}</option>)}
                   </select>
                 </span><ChevronDown size={16} />
               </label>
-              <label className="filter-control">
-                <Truck size={20} /><span className="filter-control-content"><span>Вид транспорта</span>
-                  <select aria-label="Вид транспорта" id="transport" value={draft.transport} onChange={(event) => setDraft({ ...draft, transport: event.target.value as ForecastConfig['transport'] })}>
-                    {TRANSPORTS.map((transport) => <option key={transport}>{transport}</option>)}
-                  </select>
-                </span><ChevronDown size={16} />
-              </label>
-              <label className="filter-control">
-                <Layers3 size={20} /><span className="filter-control-content"><span>Режим</span>
-                  <select aria-label="Режим перевозок" id="mode" value={draft.mode} onChange={(event) => setDraft({ ...draft, mode: event.target.value as ForecastConfig['mode'] })}>
-                    <option value="federal">В регионы РФ</option><option value="region">Внутри области</option>
-                  </select>
-                </span><ChevronDown size={16} />
-              </label>
-              <button className="calculate-button" onClick={calculate}>Рассчитать прогноз <ArrowRight size={19} /></button>
+              <div className="filter-display"><Truck size={20} /><div><span>Вид транспорта</span><strong>Море · синтетика</strong></div></div>
+              <button className="calculate-button" onClick={calculate}>Показать пример <ArrowRight size={19} /></button>
               <button className="reset-button" aria-label="Сбросить параметры" title="Сбросить параметры" onClick={reset}><RotateCcw size={18} /></button>
             </div>
             <button className="advanced-toggle" aria-expanded={paramsOpen} aria-controls="forecast-parameters" onClick={() => setParamsOpen((open) => !open)}>
@@ -255,20 +222,9 @@ export default function App() {
                   ))}
                 </div>
               </fieldset>
-              <fieldset className="options-group">
-                <legend>Дополнительные условия</legend>
-                <div className="checkbox-grid">
-                  {([['newRoute', 'Новый маршрут'], ['frequency', 'Увеличение частоты'], ['terminal', 'Грузовой терминал']] as const).map(([value, label]) => (
-                    <label className="checkbox-label" key={value}>
-                      <input type="checkbox" checked={draft.options[value]} onChange={() => toggleOption(value)} />
-                      <span className="custom-checkbox"><Check size={13} /></span>{label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
               <div className="advanced-actions"><button className="button-primary" onClick={calculate}>Применить параметры <ArrowRight size={17} /></button><button className="button-secondary" onClick={reset}><RotateCcw size={16} />Сбросить</button></div>
             </div>
-            <div className="filter-status" role="status"><span className={dirty ? 'status-dot is-dirty' : 'status-dot'} />{dirty ? 'Параметры изменены — нажмите «Рассчитать прогноз»' : notice}<span className="current-scenario">{scenarioTitle}</span></div>
+            <div className="filter-status" role="status"><span className={dirty ? 'status-dot is-dirty' : 'status-dot'} />{dirty ? 'Параметры изменены — нажмите «Показать пример»' : notice}<span className="current-scenario">{scenarioTitle}</span></div>
           </section>
 
           <section className="kpi-grid" id="forecast" aria-label="Ключевые показатели">
@@ -278,9 +234,9 @@ export default function App() {
               <div className="kpi-bottom"><ArrowUpRight size={15} />к 2025 году</div>
             </article>
             <article className="kpi-card">
-              <div className="kpi-top"><span><Clock3 size={20} />{applied.mode === 'region' ? 'Время поездки' : 'Время доставки'}</span></div>
+              <div className="kpi-top"><span><Clock3 size={20} />Время доставки</span></div>
               <div className="kpi-main"><div className="kpi-value">{formatNumber(result.time)} <small>{result.timeUnit}</small></div><Delta value={result.timeDelta} inverse /></div>
-              <div className="kpi-bottom"><ArrowDownRight size={15} />к 2025 году · {applied.mode === 'region' ? 'внутри области' : 'в регионы РФ'}</div>
+              <div className="kpi-bottom"><ArrowDownRight size={15} />к 2025 году · синтетический пример</div>
             </article>
             <article className="kpi-card">
               <div className="kpi-top"><span><MapPin size={20} />Доступность городов</span></div>
@@ -290,11 +246,11 @@ export default function App() {
             <article className="kpi-card">
               <div className="kpi-top"><span><Warehouse size={20} />Загрузка терминала</span></div>
               <div className="kpi-main"><div className="kpi-value">{result.terminal}<small>%</small></div><Delta value={result.terminalDelta} suffix=" п.п." /></div>
-              <div className="kpi-bottom"><ArrowUpRight size={15} />{applied.direction} · к 2025 году</div>
+              <div className="kpi-bottom"><ArrowUpRight size={15} />{DIRECTION_LABELS[applied.direction]} · к 2025 году</div>
             </article>
           </section>
 
-          <section className="charts-grid" id="analytics" aria-label="Аналитика прогноза">
+          <section className="charts-grid" id="analytics" aria-label="Аналитика примера">
             <article className="chart-card">
               <div className="chart-heading"><BarChart3 size={19} /><h2>Объём груза к 2030: {scenarioTitle.toLowerCase()}</h2></div>
               <VolumeChart data={result.stacked} light={theme === 'light'} />
@@ -315,20 +271,20 @@ export default function App() {
               <div className="hypothesis-cards">
                 <article className="hypothesis-card">
                   <div className="hypothesis-title"><span>А</span><h3>Больше мощности</h3></div>
-                  <div className="hypothesis-value">{formatNumber(result.hypotheses[1].volume)} <small>тыс. т/сутки</small><Delta value={18} /></div>
-                  <p><CheckCircle2 size={15} />Увеличение мощности терминалов · время −22%</p>
+                  <div className="hypothesis-value">{formatNumber(result.hypotheses[1].volume)} <small>тыс. т/сутки</small><span>синтетика</span></div>
+                  <p><CheckCircle2 size={15} />Синтетика · условное время 2,5 ч</p>
                 </article>
                 <article className="hypothesis-card">
                   <div className="hypothesis-title"><span>Б</span><h3>Новый маршрут</h3></div>
-                  <div className="hypothesis-value">{formatNumber(result.hypotheses[2].volume)} <small>тыс. т/сутки</small><Delta value={35} /></div>
-                  <p><CheckCircle2 size={15} />Обход перегруженных участков · время −28%</p>
+                  <div className="hypothesis-value">{formatNumber(result.hypotheses[2].volume)} <small>тыс. т/сутки</small><span>синтетика</span></div>
+                  <p><CheckCircle2 size={15} />Синтетика · условное время 2,3 ч</p>
                 </article>
               </div>
             </div>
             <article className="insight-panel">
               <div className="panel-heading"><Lightbulb size={20} /><h2>Что меняет выбор</h2></div>
               <p>{insight}</p>
-              <div className="insight-bottom"><span>{applied.direction}</span><Truck size={58} strokeWidth={1.2} /></div>
+              <div className="insight-bottom"><span>{DIRECTION_LABELS[applied.direction]}</span><Truck size={58} strokeWidth={1.2} /></div>
             </article>
           </section>
 
@@ -336,15 +292,15 @@ export default function App() {
             <article className="info-card limitations-card">
               <div className="panel-heading"><Info size={19} /><h2>Данные и ограничения</h2></div>
               <ul>
-                <li><strong>Груз:</strong> авто 2001–2024, ж/д 2001–2022, частично море и авиация.</li>
-                <li><strong>Время:</strong> расчётное по расписаниям; фактических замеров нет.</li>
-                <li><strong>Доступность:</strong> 9 автостанций и электрички; длинной истории нет.</li>
-                <li><strong>Загрузка:</strong> показатели терминала; ряда по маршрутам нет.</li>
+                <li><strong>Статус всех чисел:</strong> synthetic — вымышленные примеры интерфейса, включая 2025 год.</li>
+                <li><strong>Покрытие:</strong> проверенный целевой ряд и обученная модель к странице не подключены.</li>
+                <li><strong>Время и доступность:</strong> методика и коэффициенты не утверждены; значения вымышлены.</li>
+                <li><strong>Действия:</strong> параметры и два основных сценария ещё выбирает команда.</li>
               </ul>
             </article>
             <article className="info-card guide-card">
-              <div className="panel-heading"><CircleHelp size={19} /><h2>Как читать прогноз</h2></div>
-              <p><strong>Вход:</strong> направление, транспорт, режим и сценарий.</p>
+              <div className="panel-heading"><CircleHelp size={19} /><h2>Как читать пример</h2></div>
+              <p><strong>Вход:</strong> направление коридора и синтетический пример моря.</p>
               <p><strong>Выход:</strong> объём, время, доступность и загрузка.</p>
               <p>Стрелка показывает изменение к 2025 году.</p>
             </article>
@@ -356,11 +312,11 @@ export default function App() {
           </section>
 
           <section className="ai-note" id="about">
-            <Info size={21} /><div><h2>О FloCast</h2><p>FloCast — демонстрационный проект команды Not Found для Калининградской агломерации. Он помогает сравнивать сценарии развития транспортной сети до 2030 года: оценивать объём грузов, время доставки, доступность городов и загрузку терминалов. Интерфейс работает на иллюстративных данных и предназначен для обсуждения решений, а не для официального прогнозирования.</p></div><Route size={28} />
+            <Info size={21} /><div><h2>О FloCast</h2><p>FloCast — демонстрационный проект команды Not Found для перевозок между Калининградской областью и основной частью РФ. Он показывает оформление синтетических примеров до 2030 года. Расчёты по вводу пользователя доступны в отдельном калькуляторе мощности. Все значения вымышлены и не измеряют эффект действия. <a href="/capacity">Открыть калькулятор мощности</a>.</p></div><Route size={28} />
           </section>
         </main>
 
-        <footer className="site-footer"><span>© 2025 FloCast · Команда Not Found · Калининградская агломерация</span><span>Сценарный инструмент · v2.0</span></footer>
+        <footer className="site-footer"><span>© 2025 FloCast · Команда Not Found · Калининградская область ↔ основная часть РФ</span><span>Сценарный инструмент · v2.0</span></footer>
       </div>
     </div>
   )
