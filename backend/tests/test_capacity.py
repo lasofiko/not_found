@@ -75,6 +75,7 @@ def test_valid_period_and_calculation(client: TestClient, period: str) -> None:
     assert body["scenario_capacity_tonnes"] == 85
     assert body["scenario_shortfall_tonnes"] == 15
     assert body["shortfall_reduction_tonnes"] == 5
+    assert body["scenario_spare_capacity_tonnes"] == 0
     assert all(
         math.isfinite(body[key])
         for key in (
@@ -82,5 +83,22 @@ def test_valid_period_and_calculation(client: TestClient, period: str) -> None:
             "scenario_capacity_tonnes",
             "scenario_shortfall_tonnes",
             "shortfall_reduction_tonnes",
+            "scenario_spare_capacity_tonnes",
         )
     )
+
+
+@pytest.mark.parametrize(
+    ("delta", "shortfall", "reduction", "spare"),
+    [(0, 20, 0, 0), (20, 0, 20, 0), (40, 0, 20, 20)],
+)
+def test_api_distinguishes_reduced_shortfall_from_spare_capacity(
+    client: TestClient, delta: int, shortfall: int, reduction: int, spare: int
+) -> None:
+    response = client.post("/api/v1/scenarios/capacity", json=payload(capacity_delta_tonnes=delta))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scenario_shortfall_tonnes"] == shortfall
+    assert body["shortfall_reduction_tonnes"] == reduction
+    assert body["scenario_spare_capacity_tonnes"] == spare
+    assert body["scenario_capacity_tonnes"] + shortfall - spare == 100

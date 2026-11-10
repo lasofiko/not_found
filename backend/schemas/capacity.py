@@ -55,4 +55,5 @@ class CapacityResponse(BaseModel):
     scenario_capacity_tonnes: float
     scenario_shortfall_tonnes: float
     shortfall_reduction_tonnes: float
+    scenario_spare_capacity_tonnes: float
     warning: str
