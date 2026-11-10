@@ -1,9 +1,14 @@
-"""Ridge и два baseline; переносимое состояние, рекурсия и условные интервалы."""
+"""Методы зафиксированного протокола и переносимые исторические состояния Ridge."""
 import math
 from statistics import fmean
 
-MODEL_IDS = ("naive", "seasonal_naive", "ridge_0.1", "ridge_1", "ridge_10")
+MODEL_IDS = ("naive", "seasonal_naive", "drift", "ses")
+LEGACY_MODEL_IDS = ("ridge_0.1", "ridge_1", "ridge_10")
 FEATURE_NAMES = ("lag_1", "rolling_mean_3", "month_sin", "month_cos")
+
+
+class MissingLagError(ValueError):
+    """Срез пропускается, когда соответствующий сезонный лаг отсутствует."""
 
 
 def features(history: list, index: int) -> list[float]:
@@ -14,7 +19,7 @@ def features(history: list, index: int) -> list[float]:
 
 
 def fit_port_model(model_id: str, history: list) -> dict:
-    if model_id not in MODEL_IDS or len(history) < 12:
+    if model_id not in MODEL_IDS + LEGACY_MODEL_IDS or len(history) < 3:
         raise ValueError("Неизвестный метод или слишком короткая история")
     if any(v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))
                               or not math.isfinite(v) or v < 0) for v in history):
@@ -40,6 +45,24 @@ def fit_port_model(model_id: str, history: list) -> dict:
         state.update(alpha=alpha, center=center.tolist(), scale=scale.tolist(),
                      coefficients=coefficients.tolist(), intercept=intercept, training_windows=len(indices))
         residuals = [history[i] - _point(state, history, i) for i in indices]
+    elif model_id == "drift":
+        first, last = known[0], known[-1]
+        if last <= first:
+            raise ValueError("Недостаточно истории для drift")
+        drift = (history[last] - history[first]) / (last - first)
+        state["drift_per_month"] = drift
+        residuals = [history[i] - history[i - 1] - drift for i in known if i and history[i - 1] is not None]
+    elif model_id == "ses":
+        from ml.models import fit_model
+        contiguous = list(history[:known[-1] + 1])
+        if any(v is None for v in contiguous):
+            raise ValueError("SES требует непрерывного доступного обучающего окна")
+        fitted = fit_model("ses", contiguous)
+        state.update(alpha=fitted["alpha"], level=fitted["level"])
+        level, residuals = contiguous[0], []
+        for value in contiguous[1:]:
+            residuals.append(value - level)
+            level = state["alpha"] * value + (1 - state["alpha"]) * level
     else:
         lag = 1 if model_id == "naive" else 12
         residuals = [history[i] - history[i - lag] for i in known if i >= lag and history[i - lag] is not None]
@@ -57,6 +80,16 @@ def _point(state: dict, history: list, index: int):
         return candidates[-1] if candidates else None
     if kind == "seasonal_naive":
         return history[index - 12] if index >= 12 else None
+    if kind == "drift":
+        values = [(i, value) for i, value in enumerate(history[:index]) if value is not None]
+        last, value = values[-1]
+        return max(0.0, value + (index - last) * state["drift_per_month"])
+    if kind == "ses":
+        level = state["level"]
+        for value in history[state["last_known_index"] + 1:index]:
+            if value is not None:
+                level = state["alpha"] * value + (1 - state["alpha"]) * level
+        return max(0.0, level)
     x = features(history, index)
     return max(0.0, state["intercept"] + math.fsum(c * (v - mean) / scale for c, v, mean, scale
                 in zip(state["coefficients"], x, state["center"], state["scale"])))
@@ -73,7 +106,7 @@ def forecast_values(state: dict, target_indices: list[int]) -> list[float]:
         history.append(point)
     values = [history[i] for i in target_indices]
     if any(v is None for v in values):
-        raise ValueError("Для сезонного прогноза нет соответствующего месяца прошлого года")
+        raise MissingLagError("Для сезонного прогноза нет соответствующего месяца прошлого года")
     return [max(0.0, float(v)) for v in values]
 
 

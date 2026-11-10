@@ -11,10 +11,10 @@ import numpy as np
 
 from ml.line_experiment import evaluate_line_experiment
 from ml.port_evaluation import available_history, evaluate_port
-from ml.port_models import features, fit_port_model, forecast_values, bootstrap_predictions, MODEL_IDS
+from ml.port_models import features, fit_port_model, forecast_values, bootstrap_predictions
 from ml.port_predict import forecast_port
 from ml.port_run import run_port
-from pipeline.common import digest, write_json
+from pipeline.common import write_json
 from pipeline.model_inputs import derive_port_series, month_index, month_period, month_end, source_available_by
 
 
@@ -37,9 +37,15 @@ def cumulative_fixture():
 
 def monthly_fixture():
     cumulative, artifacts = cumulative_fixture()
-    rows = derive_port_series(cumulative, artifacts, "synthetic")
-    for i, row in enumerate(rows):
-        row["value_tonnes"] = str(100 + i * 2 + 10 * math.sin(i / 2))
+    template = derive_port_series(cumulative, artifacts, "synthetic")[0]
+    rows = []
+    for i in range(43):
+        period = month_period(month_index("2022-06") + i)
+        rows.append({**template, "period": period, "cargo_group": "грузы на паромах",
+            "value_tonnes": str(100 + i * 2 + 10 * math.sin(i / 2)),
+            "available_by": month_end(month_period(month_index(period) + 1)),
+            "source_role": "primary", "source_id": "synthetic_" + period,
+            "target_id": "kaliningrad_ferries", "quality_flags": ""})
     return rows
 
 
@@ -130,18 +136,19 @@ class PortModelTests(unittest.TestCase):
 
 
 class PortEvaluationTests(unittest.TestCase):
-    def test_publication_mask_excludes_both_unavailable_decembers(self):
+    def test_publication_mask_excludes_future_december_without_hiding_known_history(self):
         rows = monthly_fixture()
-        history = available_history(rows[:24], "2024-12-31")
-        self.assertIsNone(history[11])
-        self.assertIsNone(history[23])
-        self.assertIsNotNone(history[22])
-        self.assertEqual(available_history(rows[:24], "2025-01-31")[23], float(rows[23]["value_tonnes"]))
+        prefix = [r for r in rows if r['period'] <= '2024-12']
+        history = available_history(prefix, "2024-12-31")
+        self.assertIsNone(history[-1])
+        self.assertIsNotNone(history[-13])
+        self.assertIsNotNone(history[-2])
+        self.assertEqual(available_history(prefix, "2025-01-31")[-1], float(prefix[-1]["value_tonnes"]))
 
     def test_holdout_changes_cannot_change_selection_or_development(self):
         first = monthly_fixture()
         second = deepcopy(first)
-        for row in second[30:]:
+        for row in second[-6:]:
             row["value_tonnes"] = str(float(row["value_tonnes"]) * 50)
         a, ma, sa = evaluate_port(first)
         b, mb, sb = evaluate_port(second)
@@ -157,17 +164,17 @@ class PortEvaluationTests(unittest.TestCase):
             recorded.append((name, list(history)))
             return fit_port_model(name, history)
         checked, _, _ = evaluate_port(rows, fitter=fitter)
-        self.assertEqual(len(checked), 120)
-        first = next(r for r in checked if r["model_id"] == "ridge_1")
-        self.assertEqual(first["train_end"], "2024-11")
+        self.assertEqual(len(checked), 144)
+        first = next(r for r in checked if r["model_id"] == "drift")
+        self.assertEqual(first["train_end"], "2024-05")
         self.assertEqual(first["model_steps"], 2)
-        for n, (name, history) in enumerate(recorded[:5]):
-            self.assertEqual(len(history), 24)
-            self.assertIsNone(history[23])
-        three = [r for r in checked if r["model_id"] == "ridge_1" and r["horizon_months"] == 3
-                 and r["issued_at"] == "2024-12-31"]
-        state = fit_port_model("ridge_1", available_history(rows[:24], "2024-12-31"))
-        self.assertEqual([r["predicted_tonnes"] for r in three], forecast_values(state, [24, 25, 26]))
+        for name, history in recorded[:4]:
+            self.assertEqual(len(history), 25)
+            self.assertIsNone(history[-1])
+        three = [r for r in checked if r["model_id"] == "drift" and r["horizon_months"] == 3
+                 and r["issued_at"] == "2024-06-30"]
+        state = fit_port_model("drift", available_history(rows[:25], "2024-06-30"))
+        self.assertEqual([r["predicted_tonnes"] for r in three], forecast_values(state, [25, 26, 27]))
 
 
 class PortArtifactTests(unittest.TestCase):

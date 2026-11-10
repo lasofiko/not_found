@@ -7,21 +7,26 @@ from pipeline.common import ROOT, digest
 from pipeline.model_inputs import month_index, month_period
 
 PORT_WARNINGS = [
-    "Общий каботаж порта Калининград; OD, Усть-Луга и направления не выделены.",
+    "Каботаж указанного порта и группы; OD, Усть-Луга и направления не выделены.",
     "Целевой ряд estimated: месячные разности опубликованных накопительных итогов.",
-    "Три года истории; проверены горизонты 1 и 3 месяца, длинная экстраполяция не подтверждена.",
+    "Короткая история; проверены горизонты 1 и 3 месяца, длинная экстраполяция не подтверждена.",
     "Дата доступности оценена концом месяца размещения из URL; точный день публикации не установлен.",
     "Интервалы 80/95% условны, их фактическое покрытие и неопределённость параметров не подтверждены.",
+    "Прогнозы и границы ограничены нулём; это ограничение не является калибровкой интервалов.",
     "Прогноз перевалки не определяет спрос, свободную вместимость судов или эффект действий.",
 ]
 
 
-def load_port_artifact(root: Path = ROOT, model_path: Path | None = None) -> dict:
+def load_port_artifact(root: Path = ROOT, model_path: Path | None = None, target_id: str | None = None) -> dict:
     root = Path(root).resolve()
+    if target_id is not None:
+        from pipeline.port_protocol import TARGETS
+        if target_id not in TARGETS:
+            raise ValueError("Неизвестная цель месячного протокола")
     try:
         pointer = None
         if model_path is None:
-            pointer_path = root / "models/port/latest.json"
+            pointer_path = root / "models/port" / target_id / "latest.json" if target_id else root / "models/port/latest.json"
             if not pointer_path.is_file():
                 raise ValueError("Модель каботажа отсутствует; выполните python -m ml.port_run")
             pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
@@ -34,11 +39,22 @@ def load_port_artifact(root: Path = ROOT, model_path: Path | None = None) -> dic
         if digest(body) != expected or (pointer and pointer["sha256"] != expected):
             raise ValueError("Не совпадает SHA-256 модели каботажа")
         artifact = json.loads(body)
-        if (artifact["schema_version"] != "0.1" or artifact["target_id"] != "kaliningrad_port_cabotage"
-                or artifact["forecast_origin"] != "2025-12" or artifact["observations"] != 36
+        legacy = artifact["schema_version"] == "0.1"
+        if (artifact["schema_version"] not in {"0.1", "0.2"}
+                or legacy and (artifact["target_id"] != "kaliningrad_port_cabotage" or artifact["observations"] != 36)
+                or artifact["forecast_origin"] != "2025-12" or type(artifact["observations"]) is not int
+                or not 1 <= artifact["observations"] <= 43
                 or len(artifact["predictions"]) != 60
+                or target_id and artifact["target_id"] != target_id
                 or pointer and pointer["model_version"] != artifact["model_version"]):
             raise ValueError("Некорректная схема или охват модели каботажа")
+        if not legacy:
+            from ml.port_evaluation import load_port_protocol
+            from pipeline.port_protocol import TARGETS
+            if (artifact["protocol"] != load_port_protocol() or artifact["target_id"] not in TARGETS
+                    or (artifact["port"], artifact["cargo_group"]) != TARGETS[artifact["target_id"]]
+                    or artifact["selected_model"] not in artifact["protocol"]["models"]):
+                raise ValueError("Артефакт не соответствует протоколу или цели")
         for i, row in enumerate(artifact["predictions"]):
             if row["period"] != month_period(month_index("2026-01") + i):
                 raise ValueError("Некорректный календарь прогноза")
@@ -54,18 +70,19 @@ def load_port_artifact(root: Path = ROOT, model_path: Path | None = None) -> dic
         raise ValueError("Повреждён или недоступен артефакт каботажа: " + str(error)) from error
 
 
-def forecast_port(end_period: str = "2026-12", *, root: Path = ROOT, model_path: Path | None = None) -> dict:
+def forecast_port(end_period: str = "2026-12", *, root: Path = ROOT, model_path: Path | None = None,
+                  target_id: str | None = None) -> dict:
     index = month_index(end_period)
     if not month_index("2026-01") <= index <= month_index("2030-12"):
         raise ValueError("Конечный месяц должен быть от 2026-01 до 2030-12")
-    artifact = load_port_artifact(root, model_path)
+    artifact = load_port_artifact(root, model_path, target_id)
     return {"status": "forecast", "target_id": artifact["target_id"], "metric": "cargo_handling",
-            "geography": {"port": "Порт Калининград", "scope": "port_cabotage", "origin": None, "destination": None},
-            "direction": None, "route_id": None, "mode": "sea", "cargo_group": "Всего грузов", "unit": "tonnes",
+            "geography": {"port": artifact.get("port", "Порт Калининград"), "scope": "port_cabotage", "origin": None, "destination": None},
+            "direction": None, "route_id": None, "mode": "sea", "cargo_group": artifact.get("cargo_group", "Всего грузов"), "unit": "tonnes",
             "period_granularity": "month", "forecast_origin": artifact["forecast_origin"],
-            "training_period": {"start": "2023-01", "end": "2025-12"},
+            "training_period": {"start": artifact.get("training_start", "2023-01"), "end": "2025-12"},
             "training_data_available_by": artifact["training_data_available_by"],
-            "observations": 36, "training_status": "estimated",
+            "observations": artifact["observations"], "training_status": "estimated",
             "selected_model": artifact["selected_model"], "feature_names": artifact["state"]["feature_names"],
             "data_version": artifact["data_version"], "model_version": artifact["model_version"],
             "generated_at": artifact["generated_at"],
