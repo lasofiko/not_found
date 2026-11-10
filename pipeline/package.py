@@ -16,8 +16,21 @@ def package(root: Path, output: Path) -> Path:
     paths = set(manifest["outputs"]) | set(manifest["code"])
     paths.update(manifest.get("review_inputs", {}))
     paths.update(manifest.get("handoff_assets", {}))
+    paths.update(manifest.get("raw_inputs", {}))
+    paths.update(manifest.get("generated_outputs", {}))
     input_ids = {a["source_id"] for a in manifest["inputs"]}
-    paths.update(a["local_path"] for a in load_registry(root) if a["source_id"] in input_ids)
+    if manifest.get("build_scope") == "provided_processed":
+        paths.add(manifest["source_bundle"]["local_path"])
+        for folder in ("ml", "tests", "backend", "data/processed/team_bundle", "data/processed/port_protocol"):
+            paths.update(p.relative_to(root).as_posix() for p in (root / folder).rglob("*")
+                         if p.is_file() and "__pycache__" not in p.parts
+                         and p.suffix in {".py", ".toml", ".json", ".csv", ".md"})
+        paths.update(p.relative_to(root).as_posix() for p in (root / "frontend").glob("*")
+                     if p.is_file() and p.suffix in {".html", ".js", ".css", ".json"})
+        paths.update(p for p in ("docs/team-bundle-processing.md", "docs/ml-port-evaluation-protocol.md",
+                                "docs/ml-evaluation-protocol.md", "docs/decision-log.md") if (root / p).is_file())
+    else:
+        paths.update(a["local_path"] for a in load_registry(root) if a["source_id"] in input_ids)
     paths.update({"data/source_registry.json", "data/processed/build_manifest.json",
                   "data/README.md", "docs/data-preparation.md", "docs/contracts.md"})
     paths.update(relative for relative in ("README.md", "pyproject.toml", "docs/hypotheses-for-discussion.md",
@@ -32,7 +45,14 @@ def package(root: Path, output: Path) -> Path:
             info.compress_type = ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
             archive.writestr(info, payload)
-        scope = f"Режим комплекта: {manifest.get('build_scope', 'full')}. Отсутствующих оригиналов: {len(manifest.get('unavailable_source_ids', []))}.\n\n"
+        scope = ("Режим provided_processed: проверены предоставленные CSV, первичные raw-источники не проверялись. "
+                 "Инструкция: docs/team-bundle-processing.md.\n\n"
+                 if manifest.get("build_scope") == "provided_processed" else
+                 f"Режим комплекта: {manifest.get('build_scope', 'full')}. Отсутствующих оригиналов: {len(manifest.get('unavailable_source_ids', []))}.\n\n")
+        if manifest.get("raw_port_enrichment"):
+            scope = ("Локальный комплект: база проверена относительно ZIP-снимка, новые портовые ячейки "
+                     "переизвлечены из оригиналов. Подробная человеческая сверка ожидается. "
+                     "SeaNews и производные не публиковать. Инструкция: docs/team-bundle-processing.md.\n\n")
         put("HANDOFF.md", scope.encode() + (root / "docs/data-preparation.md").read_bytes())
         for relative in sorted(paths):
             path = (root / relative).resolve()

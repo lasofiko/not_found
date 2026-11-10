@@ -5,7 +5,6 @@
 from collections import Counter, defaultdict
 import csv
 from decimal import Decimal, InvalidOperation
-import json
 from pathlib import Path
 import re
 
@@ -257,7 +256,7 @@ def parse_archive_csv(artifact, records, version, by_url, issues):
     return result, borders
 
 
-def parse_port(sheets, artifact, version):
+def parse_port(sheets, artifact, version, *, target_ports=None, cargo_groups=None, max_year=None):
     nonempty = [(name, rows) for name, rows in sheets if rows]
     if len(nonempty) != 1:
         raise ValueError("Ожидался один заполненный лист SeaNews")
@@ -295,7 +294,8 @@ def parse_port(sheets, artifact, version):
     if header.get(total_col) != "Всего грузов":
         raise ValueError("Изменилась схема SeaNews")
     result, port, operator = [], "", ""
-    target_ports = {"Порт Калининград", "Порт Пионерский"}
+    if target_ports is None:
+        target_ports = {"Порт Калининград", "Порт Пионерский"}
     for n, cells in sorted(rows.items()):
         label = text(cells.get(name_col, ""))
         if re.search(r"\bбассейн\b", label.lower()):
@@ -316,6 +316,8 @@ def parse_port(sheets, artifact, version):
         if not re.fullmatch(r"\d{2}|\d{4}", row_year):
             raise ValueError(f"Неизвестная строка SeaNews: {sheet}!B{n}")
         actual_year = int(row_year) + (2000 if len(row_year) == 2 else 0)
+        if max_year is not None and actual_year > max_year:
+            continue
         if actual_year not in {year, year - 1}:
             raise ValueError("Неожиданный год сравнительной строки SeaNews")
         if not operator:
@@ -323,6 +325,8 @@ def parse_port(sheets, artifact, version):
         scope = "port_total" if operator.lower().startswith("итого") else "operator"
         for col, cargo in header.items():
             if columns.index(col) <= year_index or not cargo:
+                continue
+            if cargo_groups is not None and cargo not in cargo_groups:
                 continue
             raw = cells.get(col, "")
             value = "" if raw in {"", "-", "–", "—"} else decimal_text(Decimal(number(raw, nonnegative=True)) * 1000)
