@@ -581,7 +581,11 @@ export default function App() {
 
         <div className="chat-messages" aria-live="polite" aria-label="История диалога">
           {chatHistory.length === 0 && !isLoading && !chatError && (
-            <div className="chat-message system">Нажмите «Сводка», чтобы получить автоматическую сводку</div>
+            <div className="chat-welcome">
+              <Sparkles size={28} />
+              <p>Для анализа данных нажмите «Сводка»</p>
+              <span>Ассистент ответит по контексту из JSON-файлов backend</span>
+            </div>
           )}
           {chatHistory.map((message, index) => (
             <div

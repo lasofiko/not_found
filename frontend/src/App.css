@@ -364,6 +364,24 @@ section[id], main[id] { scroll-margin-top: 20px; }
   text-align: center;
   padding: 4px 8px;
 }
+.chat-welcome {
+  align-self: center;
+  margin-top: auto;
+  margin-bottom: auto;
+  max-width: 240px;
+  padding: 24px 20px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-card) 60%, transparent);
+  color: var(--text-secondary);
+  text-align: center;
+}
+.chat-welcome svg { color: var(--action-primary); }
+.chat-welcome p { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; line-height: 1.35; }
+.chat-welcome span { font-size: 10px; line-height: 1.45; }
 .chat-loading {
   align-self: flex-start;
   display: inline-flex;
