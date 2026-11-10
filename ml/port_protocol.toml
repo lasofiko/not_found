@@ -1,0 +1,15 @@
+protocol_id = "ml-port-evaluation-2026-11-10"
+models = ["naive", "seasonal_naive", "drift", "ses"]
+baseline = "naive"
+selection_start = "2024-07"
+selection_end = "2025-06"
+holdout_start = "2025-07"
+holdout_end = "2025-12"
+training_start = "2022-06"
+training_end = "2025-12"
+horizons = [1, 3]
+metrics = ["MAE", "WAPE"]
+minimum_consecutive_months = 24
+minimum_window_fraction = 0.5
+simulations = 2000
+seed = 42

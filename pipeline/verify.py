@@ -108,6 +108,9 @@ def verify(root: Path) -> list[str]:
     try:
         artifacts = load_registry(root)
         manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("build_scope") == "provided_processed":
+            from pipeline.team_bundle import verify_processed
+            return verify_processed(root, manifest)
         errors = []
         input_ids = {a["source_id"] for a in manifest["inputs"]}
         partial = manifest.get("build_scope") == "available_only"
@@ -254,7 +257,13 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args()
     errors = verify(args.root.resolve())
-    print("\n".join(errors) if errors else "Комплект проверен в пределах входов манифеста: оригиналы, результаты, код, происхождение и единицы. Цель ожидает решения команды.")
+    if errors:
+        print("\n".join(errors))
+    else:
+        manifest = json.loads((args.root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+        scope = ("предоставленные CSV и исходный ZIP, структура, единицы и код; первичные raw-источники не проверялись"
+                 if manifest.get("build_scope") == "provided_processed" else "оригиналы, результаты, код, происхождение и единицы")
+        print("Комплект проверен: " + scope + ". Предметная приёмка ожидается.")
     return int(bool(errors))
 
 

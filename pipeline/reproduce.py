@@ -13,7 +13,12 @@ def reproduce(root: Path) -> dict:
     if errors:
         raise ValueError("\n".join(errors))
     before = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
-    after = build(root, available_only=before.get("build_scope") == "available_only")
+    if before.get("build_scope") == "provided_processed":
+        from pipeline.team_bundle import rebuild_processed
+        rebuild_processed(root, root / before["source_bundle"]["local_path"])
+        after = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+    else:
+        after = build(root, available_only=before.get("build_scope") == "available_only")
     differences = sorted(p for p in set(before["outputs"]) | set(after["outputs"])
                          if before["outputs"].get(p) != after["outputs"].get(p))
     if differences or before != after:

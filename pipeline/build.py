@@ -403,8 +403,8 @@ def main() -> int:
         print(f"Сборка остановлена: {error}")
         return 1
     print(f"Подготовлен кандидат: {manifest['candidate_rows']} строк; контекст: {manifest['context_rows']}. Версия: {manifest['data_version']}. Цель не утверждена.")
-    print(f"Режим: {manifest['build_scope']}; отсутствующих оригиналов: {len(manifest['unavailable_source_ids'])}")
     if manifest["table_rows"]:
+    print(f"Режим: {manifest['build_scope']}; отсутствующих оригиналов: {len(manifest['unavailable_source_ids'])}")
         print("Пользовательские таблицы: " + "; ".join(f"{name}: {count}" for name, count in manifest["table_rows"].items()))
     return 0
 

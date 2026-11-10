@@ -95,7 +95,8 @@ def load_dataset(root: Path, config: dict):
     if relative not in manifest["outputs"] or manifest["candidate_rows"] != 18:
         raise ValueError("Нет заполненного ряда из 18 наблюдений; получите оригинал и пересоберите данные")
     path = root / relative
-    errors = validate(path, registry=root / "data/source_registry.json", root=root, corridor=True,
+    provided = manifest.get("build_scope") == "provided_processed"
+    errors = validate(path, registry=None if provided else root / "data/source_registry.json", root=root, corridor=True,
                       require_observations=True, observed_only=True, source_ids={a["source_id"] for a in manifest["inputs"]})
     if errors:
         raise ValueError("Целевой CSV не прошёл проверку:\n" + "\n".join(errors))
@@ -109,4 +110,8 @@ def load_dataset(root: Path, config: dict):
                for a in load_registry(root) if a["source_id"] in used]
     return series, {"data_version": manifest["data_version"], "dataset_path": relative,
                     "dataset_sha256": digest(path.read_bytes()), "sources": sources,
-                    "data_build_scope": manifest.get("build_scope", "full"), "human_methodology_review": "pending"}
+                    "data_build_scope": manifest.get("build_scope", "full"),
+                    "verification_scope": manifest.get("verification_scope", "originals"),
+                    "original_source_validation": manifest.get("original_source_validation", "performed"),
+                    "source_bundle": manifest.get("source_bundle"),
+                    "human_methodology_review": "pending"}

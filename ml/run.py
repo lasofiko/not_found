@@ -62,7 +62,9 @@ def run(root: Path = ROOT, *, end_year: int = 2030, config_path: Path | None = N
     artifact = {"schema_version": "0.1", "model_version": model_version, "data_version": provenance["data_version"],
                 "generated_at": generated_at, "forecast_origin": 2023, "scope_status": "experimental_line_demo",
                 "config": config, "fingerprint": fingerprint, "libraries": libraries, "directions": directions,
-                "metrics": metrics, "provenance": provenance, "warnings": WARNINGS}
+                "metrics": metrics, "provenance": provenance, "warnings": [*WARNINGS, *(
+                    ["Проверены предоставленные CSV; первичные raw-источники повторно не проверены."]
+                    if provenance.get("data_build_scope") == "provided_processed" else [])]}
     # Отсечь не-JSON числа до публикации файлов и указателя модели.
     json.dumps(artifact, allow_nan=False)
     write_json(model_path, artifact)
