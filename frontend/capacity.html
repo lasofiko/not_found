@@ -16,7 +16,8 @@
   <h1>Not Found</h1>
   <p>Первый рабочий экран: чувствительность дефицита мощности к заданному приросту. Все числа ниже вводятся пользователем и относятся к <strong>одному периоду</strong>.</p>
   <form id="capacity-form">
-    <label>Период <input name="period" placeholder="2027-01" required></label>
+    <label>Период <input name="period" placeholder="2027-01" pattern="(?!0000)[0-9]{4}(-(0[1-9]|1[0-2]))?" aria-describedby="period-hint" title="Год YYYY или месяц YYYY-MM, например 2027 или 2027-01" required></label>
+    <p class="hint" id="period-hint">Год или месяц: 2027 либо 2027-01.</p>
     <label>Потребность, т за период <input name="demand_tonnes" type="number" min="0" step="any" required></label>
     <label>Доступная мощность, т за период <input name="capacity_tonnes" type="number" min="0" step="any" required></label>
     <label>Дополнительная мощность, т за период <input name="capacity_delta_tonnes" type="number" min="0" step="any" required></label>

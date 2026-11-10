@@ -29,7 +29,7 @@
   * { @apply border-border; }
   html { background: #F4F5FA; scroll-behavior: smooth; color-scheme: light; }
   body {
-    min-width: 320px;
+    min-width: 0;
     min-height: 100dvh;
     margin: 0;
     background: #F4F5FA;

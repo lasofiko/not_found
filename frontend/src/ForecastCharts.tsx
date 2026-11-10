@@ -16,13 +16,19 @@ import type { selectDemoScenario } from './dashboard-data'
 
 type Forecast = ReturnType<typeof selectDemoScenario>
 
-const colors = {
+const darkColors = {
   teal: '#32AA9B',
-  tealDark: '#278D84',
   violet: '#7967D5',
-  violetLight: '#AA99EC',
   blue: '#6C91D4',
 }
+
+const lightColors = {
+  teal: '#227B71',
+  violet: '#6D59C7',
+  blue: '#4C70B4',
+}
+
+const getColors = (light: boolean) => light ? lightColors : darkColors
 
 const getTooltipStyle = (light: boolean) => ({
   background: light ? '#FCFCFE' : '#1B1E32',
@@ -34,12 +40,12 @@ const getTooltipStyle = (light: boolean) => ({
 })
 
 const getAxisStyle = (light: boolean) => ({
-  fill: light ? '#747B90' : '#A3A8BC',
+  fill: light ? '#626A80' : '#A3A8BC',
   fontSize: 11,
   fontFamily: 'Inter',
 })
 
-function ChartLegend({ items }: { items: { name: string; color: string; dashed?: boolean }[] }) {
+function ChartLegend({ items }: { items: { name: string; color: string }[] }) {
   return (
     <div className="chart-legend" aria-label="Легенда графика">
       {items.map((item) => (
@@ -56,6 +62,7 @@ export function VolumeChart({ data, light = false }: { data: Forecast['stacked']
   const tooltipStyle = getTooltipStyle(light)
   const axisStyle = getAxisStyle(light)
   const gridColor = light ? '#E8E8F0' : '#292D43'
+  const colors = getColors(light)
 
   return (
     <div className="chart-wrap">
@@ -63,9 +70,7 @@ export function VolumeChart({ data, light = false }: { data: Forecast['stacked']
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 4, left: -22, bottom: 0 }} barCategoryGap="38%">
             <defs>
-              <linearGradient id="autoPremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#48BCAB" /><stop offset="100%" stopColor={colors.tealDark} /></linearGradient>
-              <linearGradient id="railPremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#91A9DE" /><stop offset="100%" stopColor={colors.blue} /></linearGradient>
-              <linearGradient id="seaPremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={colors.violetLight} /><stop offset="100%" stopColor={colors.violet} /></linearGradient>
+              <linearGradient id="seaPremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7764C4" /><stop offset="100%" stopColor="#6D59C7" /></linearGradient>
             </defs>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="3 5" />
             <XAxis dataKey="year" axisLine={false} tickLine={false} tick={axisStyle} dy={6} />
@@ -84,6 +89,7 @@ export function DynamicsChart({ data, light = false }: { data: Forecast['dynamic
   const tooltipStyle = getTooltipStyle(light)
   const axisStyle = getAxisStyle(light)
   const gridColor = light ? '#E8E8F0' : '#292D43'
+  const colors = getColors(light)
 
   return (
     <div className="chart-wrap">
@@ -107,9 +113,13 @@ export function DynamicsChart({ data, light = false }: { data: Forecast['dynamic
 
 function HypothesisTick({ x = 0, y = 0, payload, light = false }: { x?: number; y?: number; payload?: { value: string }; light?: boolean }) {
   const value = payload?.value ?? ''
-  const lines = value === 'Б. Новый маршрут' ? ['Б. Новый', 'маршрут'] : [value]
+  const lines = value === 'Б. Новый маршрут'
+    ? ['Б.', 'Маршрут']
+    : value === 'А. Мощность'
+      ? ['А.', 'Мощность']
+      : [value]
   return (
-    <text x={x} y={y + 12} textAnchor="middle" fill={light ? '#747B90' : '#A3A8BC'} fontSize={11} fontFamily="Inter">
+    <text x={x} y={y + 12} textAnchor="middle" fill={light ? '#626A80' : '#A3A8BC'} fontSize={10} fontFamily="Inter">
       {lines.map((line, index) => <tspan key={line} x={x} dy={index === 0 ? 0 : 13}>{line}</tspan>)}
     </text>
   )
@@ -119,17 +129,33 @@ export function HypothesisChart({ data, timeUnit, light = false }: { data: Forec
   const tooltipStyle = getTooltipStyle(light)
   const axisStyle = getAxisStyle(light)
   const gridColor = light ? '#E8E8F0' : '#292D43'
+  const colors = getColors(light)
 
   return (
     <div className="chart-wrap comparison-chart-wrap">
       <div className="chart-canvas comparison-canvas" role="img" aria-label={`Сравнение трёх гипотез по объёму груза и времени доставки в ${timeUnit}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: -4, left: -20, bottom: 0 }} barCategoryGap="30%">
-            <defs><linearGradient id="comparePremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#55C2B2" /><stop offset="100%" stopColor="#328F9B" /></linearGradient></defs>
+          <ComposedChart data={data} margin={{ top: 8, right: 0, left: 0, bottom: 0 }} barCategoryGap="30%">
+            <defs><linearGradient id="comparePremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={light ? '#2B8C80' : '#55C2B2'} /><stop offset="100%" stopColor={light ? colors.teal : '#328F9B'} /></linearGradient></defs>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="3 5" />
             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={<HypothesisTick light={light} />} height={38} interval={0} />
-            <YAxis yAxisId="volume" axisLine={false} tickLine={false} tick={axisStyle} />
-            <YAxis yAxisId="time" orientation="right" axisLine={false} tickLine={false} tick={axisStyle} width={32} />
+            <YAxis
+              yAxisId="volume"
+              axisLine={false}
+              tickLine={false}
+              tick={axisStyle}
+              width={40}
+              label={{ value: 'тыс. т/сутки', angle: -90, position: 'insideLeft', offset: 0, fill: axisStyle.fill, fontSize: 10, style: { textAnchor: 'middle' } }}
+            />
+            <YAxis
+              yAxisId="time"
+              orientation="right"
+              axisLine={false}
+              tickLine={false}
+              tick={axisStyle}
+              width={30}
+              label={{ value: timeUnit, angle: 90, position: 'insideRight', offset: 0, fill: axisStyle.fill, fontSize: 10, style: { textAnchor: 'middle' } }}
+            />
             <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => name === 'Объём' ? [`${value} тыс. т/сутки`, name] : [`${value} ${timeUnit}`, name]} />
             <Legend content={() => null} />
             <Bar yAxisId="volume" name="Объём" dataKey="volume" fill="url(#comparePremium)" radius={[6, 6, 0, 0]} maxBarSize={42} isAnimationActive={false} />

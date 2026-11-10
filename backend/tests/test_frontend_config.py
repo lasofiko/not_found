@@ -73,6 +73,8 @@ def test_dashboard_serves_build_assets_without_exposing_sources(tmp_path, monkey
     monkeypatch.setattr(app_module, "FRONTEND", tmp_path)
     client = TestClient(create_app(Settings(_env_file=None, api_prefix="/custom/v2")))
     assert client.get("/dashboard/").status_code == 200
+    assert client.get("/dashboard/").headers["cache-control"] == "no-store"
+    assert client.get("/dashboard/index.html").headers["cache-control"] == "no-store"
     assert client.get("/dashboard/assets/demo.js").status_code == 200
     assert client.get("/dashboard/missing.js").status_code == 404
     assert client.get("/dashboard/src/App.tsx").status_code == 404
