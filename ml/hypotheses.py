@@ -17,8 +17,12 @@ from ml.research_inputs import (
     action_scenarios,
     load_facts,
     load_repairs,
+    loss_per_day,
     repair_days,
+    repair_months,
     research_rows,
+    reserve_gain_by_year,
+    wagon_share,
 )
 from pipeline.common import ROOT, write_csv
 
@@ -407,14 +411,21 @@ def _research_section(scenarios: list[dict], facts: dict) -> list[str]:
         "Провозная возможность — наибольший наблюдённый год линии, а не паспортная мощность. "
         "Спрос ×1.5 и ×2 — масштаб из заявлений за прошлые годы, а не измерение.",
         "",
-        "| Спрос | Нагрузка, т | Действие | Возможность, т | Непокрыто, т "
+        "Прирост от резервного парома — потерянные тонны ремонтов этого года к базовому объёму линии; "
+        "он действует только в годы, для которых есть календарь ремонтов. "
+        "Прочерк означает, что действие не оценивалось. "
+        "Предел ж/д части (около 2 млн т/год) сжимает только груз в вагонах; "
+        "доля вагонов — косвенная оценка по нескольким месяцам, без неё столбцы предела пусты.",
+        "",
+        "| Спрос | Нагрузка, т | Действие | Прирост от резерва, % | Возможность, т | Непокрыто, т "
         "| С учётом ж/д предела: возможность, т | Непокрыто, т |",
-        "|---|---:|---|---:|---:|---:|---:|",
+        "|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for r in scenarios:
         if r["year"] == year and r["direction"] == "inbound":
             lines.append(
                 f"| {r['demand_case']} | {_number(r['load_tonnes'])} | {r['action']} "
+                f"| {_number(None if r['reserve_gain_share'] is None else 100 * r['reserve_gain_share'], 1)} "
                 f"| {_number(r['capacity_action_tonnes'])} | {_number(r['shortfall_action_tonnes'])} "
                 f"| {_number(r['capacity_rail_limited_tonnes'])} | {_number(r['shortfall_rail_limited_tonnes'])} |"
             )
@@ -507,27 +518,37 @@ def run_hypotheses(root: Path = ROOT) -> dict:
     )
     facts, repairs = load_facts(), load_repairs()
     main = next(r for r in regression if r["sample"] == "main_3_4_ferries" and r["model"] == "ferries_plus_wind")
+    supplemental = _read(processed / "supplemental_freight.csv")
+    rail_share = wagon_share(supplemental)
     extra = research_rows(
         panel,
         candidate,
-        _read(processed / "supplemental_freight.csv"),
+        supplemental,
         facts,
         repairs,
         (main["ferries_ci_low"], main["ferries_coef_tonnes"], main["ferries_ci_high"]),
         INDIRECT,
         SCENARIO,
+        rail_share,
     )
     position = next(i for i, r in enumerate(outcome) if r["hypothesis_id"] == "phased_investment")
     outcome[position:position] = extra
     scenarios = []
     if (root / "models/latest.json").is_file():
-        reserve_gain = next(r["central"] for r in extra if r["indicator"].startswith("Доля судо-дней")) / 100
+        totals: dict[int, float] = defaultdict(float)
+        for row in candidate:
+            totals[int(row["period"])] += float(row["value_tonnes"])
+        reserve_gain = reserve_gain_by_year(
+            repairs, loss_per_day(repair_months(panel), main["ferries_ci_low"]), max(totals.values())
+        )
+        directions = ("inbound", "outbound")
         scenarios = action_scenarios(
-            {d: forecast(d, 2030, root=root) for d in ("inbound", "outbound")},
+            {d: forecast(d, 2030, root=root) for d in directions},
             candidate,
             facts,
             reserve_gain,
             turnaround_gain(*CENTRAL_TURNAROUND),
+            {d: rail_share[d]["share"] for d in directions} if all(d in rail_share for d in directions) else None,
         )
     version, _ = fingerprint(
         "bb-hyp-",
@@ -535,6 +556,7 @@ def run_hypotheses(root: Path = ROOT) -> dict:
             "data_version": data_version,
             "fleet": fleet,
             "panel": panel,
+            "rail_share": rail_share,
             "facts": facts,
             "repairs": [{**r, "start": str(r["start"]), "end": str(r["end"])} for r in repairs],
             "scenarios": scenarios,
