@@ -111,8 +111,29 @@ def read_history(root):
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = [r for r in csv.DictReader(stream) if r["period"] < "2026"]
     manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("raw_port_enrichment"):
+        from pipeline.bundle_sources import RAW_TABLE
+        with (root / RAW_TABLE).open(encoding="utf-8-sig", newline="") as stream:
+            rows.extend(csv.DictReader(stream))
     artifacts = {a["source_id"]: a for a in load_registry(root)}
     return rows, manifest, artifacts
+
+
+def coverage_row(target_id, rows):
+    port, cargo = TARGETS[target_id]
+    available = [r for r in rows if r["value_tonnes"] != ""]
+    before_selection = [r for r in rows if r["period"] < "2024-07"]
+    available_before_selection = [{**r, "value_tonnes": r["value_tonnes"]
+        if r["available_by"] and r["available_by"] <= "2024-06-30" else ""} for r in before_selection]
+    return {"target_id": target_id, "port": port, "cargo_group": cargo,
+        "status": "available" if available else "not_present_in_provided_tables",
+        "calendar_months": len(rows), "non_missing": len(available),
+        "longest_run": longest_run(rows), "consecutive_before_selection": longest_run(before_selection),
+        "consecutive_available_before_selection": longest_run(available_before_selection),
+        "first_period": available[0]["period"] if available else "",
+        "last_period": available[-1]["period"] if available else "",
+        "missing_periods": ";".join(r["period"] for r in rows if r["value_tonnes"] == ""),
+        "model_selection_eligible": longest_run(available_before_selection) >= 24}
 
 
 def prepare_protocol(root):
@@ -123,19 +144,7 @@ def prepare_protocol(root):
     for target_id, (port, cargo) in TARGETS.items():
         versions, issues = derive_versions(cumulative, artifacts, manifest["data_version"], target_id)
         rows = series_asof(versions, target_id)
-        available = [r for r in rows if r["value_tonnes"] != ""]
-        before_selection = [r for r in rows if r["period"] < "2024-07"]
-        available_before_selection = [{**r, "value_tonnes": r["value_tonnes"]
-            if r["available_by"] and r["available_by"] <= "2024-06-30" else ""} for r in before_selection]
-        coverage.append({"target_id": target_id, "port": port, "cargo_group": cargo,
-            "status": "available" if available else "not_present_in_provided_tables",
-            "calendar_months": len(rows), "non_missing": len(available),
-            "longest_run": longest_run(rows), "consecutive_before_selection": longest_run(before_selection),
-            "consecutive_available_before_selection": longest_run(available_before_selection),
-            "first_period": available[0]["period"] if available else "",
-            "last_period": available[-1]["period"] if available else "",
-            "missing_periods": ";".join(r["period"] for r in rows if r["value_tonnes"] == ""),
-            "model_selection_eligible": longest_run(available_before_selection) >= 24})
+        coverage.append(coverage_row(target_id, rows))
         write_csv(output / target_id / "training_series.csv", FIELDS, rows)
         write_csv(output / target_id / "vintages.csv", FIELDS, versions)
         all_issues.extend(issues)
@@ -161,10 +170,13 @@ def load_protocol_series(root, target_id="kaliningrad_ferries"):
     if not any(r["value_tonnes"] != "" for r in rows):
         raise ValueError("В предоставленных таблицах отсутствует ряд: " + target_id)
     ids = sorted({r[k] for r in versions for k in ("source_id", "previous_source_id") if r[k]})
+    raw_target = manifest.get("raw_port_enrichment") and target_id in {"petropavlovsk_total", "vladivostok_total"}
     return rows, {"data_version": manifest["data_version"], "target_id": target_id,
         "sources": [artifacts[sid] for sid in ids], "issues": issues,
-        "verification_scope": manifest.get("verification_scope", "originals"),
-        "original_source_validation": manifest.get("original_source_validation", "performed"),
+        "verification_scope": "reextracted_port_cells" if raw_target else manifest.get("verification_scope", "originals"),
+        "original_source_validation": "performed_for_target_cells" if raw_target else manifest.get("original_source_validation", "performed"),
+        "base_verification_scope": manifest.get("verification_scope", "originals"),
+        "raw_validation_scope": manifest.get("raw_validation_scope"),
         "source_bundle": manifest.get("source_bundle"), "vintage_policy": "earliest_available_comparable_difference",
         "availability_method": "Конец месяца размещения из URL; точный день не установлен.",
         "human_methodology_review": "pending", "blind_2026_loaded": False}

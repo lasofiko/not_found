@@ -16,6 +16,8 @@ def package(root: Path, output: Path) -> Path:
     paths = set(manifest["outputs"]) | set(manifest["code"])
     paths.update(manifest.get("review_inputs", {}))
     paths.update(manifest.get("handoff_assets", {}))
+    paths.update(manifest.get("raw_inputs", {}))
+    paths.update(manifest.get("generated_outputs", {}))
     input_ids = {a["source_id"] for a in manifest["inputs"]}
     if manifest.get("build_scope") == "provided_processed":
         paths.add(manifest["source_bundle"]["local_path"])
@@ -47,6 +49,10 @@ def package(root: Path, output: Path) -> Path:
                  "Инструкция: docs/team-bundle-processing.md.\n\n"
                  if manifest.get("build_scope") == "provided_processed" else
                  f"Режим комплекта: {manifest.get('build_scope', 'full')}. Отсутствующих оригиналов: {len(manifest.get('unavailable_source_ids', []))}.\n\n")
+        if manifest.get("raw_port_enrichment"):
+            scope = ("Локальный комплект: база проверена относительно ZIP-снимка, новые портовые ячейки "
+                     "переизвлечены из оригиналов. Подробная человеческая сверка ожидается. "
+                     "SeaNews и производные не публиковать. Инструкция: docs/team-bundle-processing.md.\n\n")
         put("HANDOFF.md", scope.encode() + (root / "docs/data-preparation.md").read_bytes())
         for relative in sorted(paths):
             path = (root / relative).resolve()

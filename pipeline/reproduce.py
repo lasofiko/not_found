@@ -15,18 +15,22 @@ def reproduce(root: Path) -> dict:
     before = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     if before.get("build_scope") == "provided_processed":
         from pipeline.team_bundle import rebuild_processed
-        rebuild_processed(root, root / before["source_bundle"]["local_path"])
+        rebuild_processed(root, root / before["source_bundle"]["local_path"],
+                          source_kind=before["source_bundle"].get("kind"),
+                          enrich=before.get("raw_port_enrichment", False))
         after = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     else:
         after = build(root, available_only=before.get("build_scope") == "available_only")
-    differences = sorted(p for p in set(before["outputs"]) | set(after["outputs"])
-                         if before["outputs"].get(p) != after["outputs"].get(p))
+    previous_outputs = {**before["outputs"], **before.get("generated_outputs", {})}
+    current_outputs = {**after["outputs"], **after.get("generated_outputs", {})}
+    differences = sorted(p for p in set(previous_outputs) | set(current_outputs)
+                         if previous_outputs.get(p) != current_outputs.get(p))
     if differences or before != after:
         raise ValueError("Пересборка отличается от переданного манифеста: " + ", ".join(differences or ["метаданные сборки"]))
     errors = verify(root)
     if errors:
         raise ValueError("\n".join(errors))
-    return {"data_version": after["data_version"], "outputs_compared": len(after["outputs"]),
+    return {"data_version": after["data_version"], "outputs_compared": len(current_outputs),
             "build_scope": after["build_scope"], "result": "identical", "check_actor": "automated"}
 
 

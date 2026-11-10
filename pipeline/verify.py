@@ -263,6 +263,9 @@ def main() -> int:
         manifest = json.loads((args.root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
         scope = ("предоставленные CSV и исходный ZIP, структура, единицы и код; первичные raw-источники не проверялись"
                  if manifest.get("build_scope") == "provided_processed" else "оригиналы, результаты, код, происхождение и единицы")
+        if manifest.get("raw_port_enrichment"):
+            scope = ("предоставленная база — относительно ZIP-снимка; новые портовые ячейки — относительно оригиналов; "
+                     "диагностика сентября — без раскрытия чисел; код, происхождение и единицы")
         print("Комплект проверен: " + scope + ". Предметная приёмка ожидается.")
     return int(bool(errors))
 

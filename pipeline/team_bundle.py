@@ -237,8 +237,9 @@ def prepare(root):
         inventory = [{"input_path": item["path"], "bytes": item["bytes"], "sha256": item["sha256"],
                       "origin_archive": item.get("origin", ""), "input_part": item.get("archive", ""),
                       "local_path": item["path"] if (root / item["path"]).is_file() else "",
-                      "receipt_status": "provided_in_part1" if item.get("archive") == "part1-processed"
-                                        else "not_requested_raw_part"} for item in bundle_index["files"]]
+                      "receipt_status": ("provided_in_part1" if item.get("archive") == "part1-processed"
+                                         else "provided_in_part2" if (root / item["path"]).is_file()
+                                         else "missing_raw_file")} for item in bundle_index["files"]]
         save_rows(out / "bundle_inventory.csv", inventory, ["input_path", "bytes", "sha256", "origin_archive", "input_part", "local_path", "receipt_status"])
     manifest_path = root / "data/processed/build_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
@@ -253,8 +254,13 @@ def prepare(root):
               "inputs": {r["input_table"]: file_sha(root / r["input_table"]) for r in tables},
               "code_sha256": file_sha(Path(__file__))}
     write_json(out / "quality_report.json", report)
+    prepared_paths = set(cleaned_tables) | {OUTPUT / name for name in (
+        "research_facts.csv", "research_candidates.csv", "ferry_fleet_monthly.csv", "conflicts.csv",
+        "row_issues.csv", "source_registry.csv", "table_catalog.csv")}
+    if (root / INDEX).is_file():
+        prepared_paths.add(OUTPUT / "bundle_inventory.csv")
     write_json(out / "manifest.json", {"code_sha256": report["code_sha256"], "inputs": report["inputs"],
-               "outputs": {p.relative_to(root).as_posix(): file_sha(p) for p in sorted(out.rglob("*.csv"))}})
+               "outputs": {p.as_posix(): file_sha(root / p) for p in sorted(prepared_paths)}})
     return report
 
 
@@ -281,9 +287,18 @@ def rebuild(root):
     return {"data_version": result["data_version"], "verification": "passed"}
 
 
-def rebuild_processed(root, archive_path):
+def rebuild_processed(root, archive_path, *, raw_root=None, source_kind=None, enrich=False):
     """Новая сборка производных таблиц, не переизвлечение первичных источников."""
     root, archive_path = Path(root).resolve(), Path(archive_path).resolve()
+    if archive_path.is_dir():
+        from pipeline.bundle_sources import snapshot_parts
+        archive_path = snapshot_parts(root, archive_path, raw_root)
+        source_kind = "directory_snapshot"
+    elif raw_root is not None:
+        from pipeline.bundle_sources import install_raw_part
+        with ZipFile(archive_path) as archive:
+            install_raw_part(root, raw_root, archive.read(INDEX))
+    enrich = enrich or raw_root is not None
     receipt = import_archive(root, archive_path)
     stored = root / receipt["original_path"]
     with ZipFile(stored) as archive:
@@ -301,8 +316,16 @@ def rebuild_processed(root, archive_path):
             "inputs": upstream["inputs"], "processed_inputs": inputs, "code": code,
             "registry_sha256": file_sha(root / "data/source_registry.json"),
             "handoff_assets": {p: file_sha(root / p) for p in (
-                "docs/contracts.md", "data/README.md", "data/human-review-log.csv", "pyproject.toml")
+                "docs/contracts.md", "data/README.md", "data/human-review-log.csv", "pyproject.toml",
+                "README.md", "docs/architecture.md", "docs/team-bundle-processing.md",
+                "docs/decision-log.md", "docs/ml-port-evaluation-protocol.md")
                 if (root / p).is_file()}}
+        if source_kind:
+            fingerprint["source_bundle"]["kind"] = source_kind
+        if enrich:
+            from pipeline.bundle_sources import raw_inputs
+            fingerprint.update(raw_port_enrichment=True, raw_inputs=raw_inputs(root),
+                               protocol_sha256=file_sha(root / "ml/port_protocol.toml"))
         version = "bb-provided-" + digest(json.dumps(fingerprint, sort_keys=True).encode())[:12]
         counts = {}
         for relative, expected in inputs.items():
@@ -340,6 +363,18 @@ def rebuild_processed(root, archive_path):
             "warnings": ["Пересобраны предоставленные CSV; первичные raw-источники не проверены.",
                          "JSON-отчёты прежней сборки сохранены как контекст прежней версии."]}
         write_json(root / "data/processed/build_manifest.json", manifest)
+    if enrich:
+        from pipeline.bundle_sources import prepare_sources
+        from pipeline.port_protocol import prepare_protocol
+        prepare(root)
+        prepare_sources(root, version)
+        prepare_protocol(root)
+        manifest["raw_validation_scope"] = "reextracted_port_cells_and_redacted_september_check"
+        manifest["generated_outputs"] = {
+            p.relative_to(root).as_posix(): file_sha(p)
+            for folder in ("data/processed/team_bundle", "data/processed/port_protocol")
+            for p in sorted((root / folder).rglob("*")) if p.is_file() and p.suffix in {".csv", ".json"}}
+        write_json(root / "data/processed/build_manifest.json", manifest)
     errors = verify_processed(root, manifest)
     if errors:
         raise ValueError("Ошибка проверки предоставленных таблиц: " + "; ".join(errors[:5]))
@@ -359,6 +394,8 @@ def verify_processed(root, manifest):
             "source_manifest_sha256", "upstream_data_version", "upstream_inputs", "inputs",
             "processed_inputs", "code", "registry_sha256", "handoff_assets")
     fingerprint = {key: manifest[key] for key in keys}
+    if manifest.get("raw_port_enrichment"):
+        fingerprint.update({key: manifest[key] for key in ("raw_port_enrichment", "raw_inputs", "protocol_sha256")})
     if manifest["data_version"] != "bb-provided-" + digest(json.dumps(fingerprint, sort_keys=True).encode())[:12]:
         errors.append("Версия не соответствует входам и коду сборки")
     if set(manifest["outputs"]) != set(manifest["processed_inputs"]):
@@ -367,7 +404,8 @@ def verify_processed(root, manifest):
                     if p.suffix in {".py", ".json", ".toml"}}
     if set(manifest["code"]) != current_code:
         errors.append("Состав кода изменился после сборки")
-    for relative, expected in {**manifest["code"], **manifest["outputs"], **manifest["handoff_assets"]}.items():
+    for relative, expected in {**manifest["code"], **manifest["outputs"], **manifest["handoff_assets"],
+                               **manifest.get("raw_inputs", {}), **manifest.get("generated_outputs", {})}.items():
         path = (root / relative).resolve()
         if not path.is_relative_to(root.resolve()) or not path.is_file() or file_sha(path) != expected:
             errors.append("Не совпадает SHA-256 результата или кода: " + relative)
@@ -428,6 +466,9 @@ def verify_processed(root, manifest):
                            require_observations=True, observed_only=True))
     errors.extend(verify_supplemental(root, manifest))
     errors.extend(verify_extended(root, manifest))
+    if manifest.get("raw_port_enrichment"):
+        from pipeline.bundle_sources import verify_generated
+        errors.extend(verify_generated(root, manifest))
     return errors
 
 
@@ -438,18 +479,21 @@ def main():
     parser.add_argument("--prepare", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--from-processed", type=Path)
+    parser.add_argument("--raw-root", type=Path, help="Распакованный каталог второй части")
     args = parser.parse_args()
     root = args.root.resolve()
     try:
         for path in args.archive or []:
             print(json.dumps(import_archive(root, path), ensure_ascii=False))
-        if args.prepare:
+        if args.raw_root and not args.from_processed:
+            parser.error("--raw-root требует --from-processed")
+        if args.from_processed:
+            print(json.dumps(rebuild_processed(root, args.from_processed, raw_root=args.raw_root), ensure_ascii=False))
+        if args.prepare and not args.raw_root:
             report = prepare(root)
             print(json.dumps({k: report[k] for k in ("input_tables", "facts", "fleet_rows", "provided_fact_conflicts", "conflict_rows", "rebuild_status")}, ensure_ascii=False))
         if args.rebuild:
             print(json.dumps(rebuild(root), ensure_ascii=False))
-        if args.from_processed:
-            print(json.dumps(rebuild_processed(root, args.from_processed), ensure_ascii=False))
         if not (args.archive or args.prepare or args.rebuild or args.from_processed):
             parser.error("Укажите --archive, --prepare или --rebuild")
     except (OSError, ValueError, KeyError, TypeError, BadZipFile) as error:
