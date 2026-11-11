@@ -25,7 +25,13 @@ async function loadConfig() {
     submit.disabled = false;
     result.textContent = '';
   } catch {
-    result.textContent = 'Не удалось загрузить настройки интерфейса. Проверьте config.json и доступность сервера.';
+    submit.disabled = true;
+    result.textContent = 'Не удалось загрузить настройки интерфейса. Проверьте config.json и доступность сервера. ';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Повторить подключение';
+    retry.addEventListener('click', loadConfig, { once: true });
+    result.append(retry);
   } finally {
     window.clearTimeout(timeout);
   }
@@ -74,6 +80,12 @@ form.addEventListener('submit', async (event) => {
       const message = data?.error?.message || 'Запрос не выполнен';
       const details = data?.error?.details?.map((item) => item.message).join('; ');
       throw new Error(`Ошибка API (${response.status}): ${message}${details ? `. ${details}` : ''}`);
+    }
+    const fields = ['baseline_shortfall_tonnes', 'scenario_shortfall_tonnes', 'shortfall_reduction_tonnes'];
+    if (!data || data.status !== 'scenario' || data.unit !== 'tonnes' || data.period !== values.period ||
+        typeof data.warning !== 'string' || typeof data.assumption_source !== 'string' ||
+        fields.some(key => typeof data[key] !== 'number' || !Number.isFinite(data[key]) || data[key] < 0)) {
+      throw new Error('Сервер вернул некорректный результат расчёта.');
     }
     result.innerHTML = `<h2>Результат за ${escapeHtml(data.period)}</h2>
       <p>Дефицит до действия: <strong>${fmt.format(data.baseline_shortfall_tonnes)} т</strong></p>

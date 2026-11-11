@@ -167,3 +167,80 @@ export function HypothesisChart({ data, timeUnit, light = false }: { data: Forec
     </div>
   )
 }
+
+
+type MlForecast = import('./api').Forecast
+type MlChartProps = { result: MlForecast | null; light?: boolean }
+
+function ForecastEmpty() {
+  return <p className="chart-empty">Прогноз отсутствует. Запросите проверенный результат через API.</p>
+}
+
+export function ForecastVolumeChart({ result, light = false }: MlChartProps) {
+  if (!result) return <ForecastEmpty />
+  const colors = getColors(light)
+  return <div className="chart-wrap">
+    <div className="chart-canvas" role="img" aria-label="Прогноз перевезённой массы, тонн за год">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={result.predictions}>
+          <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" vertical={false} />
+          <XAxis dataKey="period" tick={getAxisStyle(light)} />
+          <YAxis width={75} tick={getAxisStyle(light)} />
+          <Tooltip contentStyle={getTooltipStyle(light)} formatter={value => [Number(value).toLocaleString('ru-RU'), 'т/год']} />
+          <Bar name="Прогноз, т/год" dataKey="value" fill={colors.violet} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+    <ChartLegend items={[{ name: 'Прогноз перевезённой массы · т/год', color: colors.violet }]} />
+  </div>
+}
+
+export function ForecastDynamicsChart({ result, light = false }: MlChartProps) {
+  if (!result) return <ForecastEmpty />
+  const colors = getColors(light)
+  const rows = result.predictions.map(point => ({
+    period: point.period,
+    forecast: point.value,
+    lower: point.interval['95'].lower,
+    upper: point.interval['95'].upper,
+  }))
+  return <div className="chart-wrap">
+    <div className="chart-canvas" role="img" aria-label="Динамика прогноза с условными границами 95 процентов">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={rows}>
+          <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" vertical={false} />
+          <XAxis dataKey="period" tick={getAxisStyle(light)} />
+          <YAxis width={75} tick={getAxisStyle(light)} />
+          <Tooltip contentStyle={getTooltipStyle(light)} formatter={value => [Number(value).toLocaleString('ru-RU'), 'т/год']} />
+          <Line name="Прогноз" dataKey="forecast" stroke={colors.violet} isAnimationActive={false} />
+          <Line name="Нижняя 95%" dataKey="lower" stroke={colors.teal} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+          <Line name="Верхняя 95%" dataKey="upper" stroke={colors.blue} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+    <ChartLegend items={[{ name: 'Прогноз · т/год', color: colors.violet }, { name: 'Нижняя 95%', color: colors.teal }, { name: 'Верхняя 95%', color: colors.blue }]} />
+  </div>
+}
+
+export function ModelQualityChart({ result, light = false }: MlChartProps) {
+  if (!result) return <ForecastEmpty />
+  const colors = getColors(light)
+  const rows = [
+    { name: result.selected_model, MAE: result.metrics.selected.holdout.MAE },
+    { name: 'naive baseline', MAE: result.metrics.baseline.holdout.MAE },
+  ]
+  return <div className="chart-wrap">
+    <div className="chart-canvas" role="img" aria-label="MAE выбранного метода и baseline на проверке 2022–2023">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={rows}>
+          <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" vertical={false} />
+          <XAxis dataKey="name" tick={getAxisStyle(light)} />
+          <YAxis width={75} tick={getAxisStyle(light)} />
+          <Tooltip contentStyle={getTooltipStyle(light)} formatter={value => [Number(value).toLocaleString('ru-RU'), 'MAE, т']} />
+          <Bar name="MAE, т" dataKey="MAE" fill={colors.teal} isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+    <ChartLegend items={[{ name: 'MAE · т · горизонт проверки один год', color: colors.teal }]} />
+  </div>
+}

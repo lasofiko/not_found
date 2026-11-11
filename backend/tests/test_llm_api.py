@@ -134,3 +134,20 @@ def test_json_read_error_is_reported_in_context(tmp_path) -> None:
 
     text = build_context(data)
     assert "Файл bad: не удалось прочитать" in text
+
+
+def test_json_wrong_shape_is_reported_in_context(tmp_path) -> None:
+    context_dir = tmp_path / "jsons"
+    context_dir.mkdir()
+    (context_dir / "list.json").write_text("[]", encoding="utf-8")
+    (context_dir / "scalar.json").write_text(json.dumps({"metric": 1}), encoding="utf-8")
+
+    from backend.domain.llm import build_context
+    from backend.infrastructure.json_loader import JSONLoader
+
+    data = JSONLoader(context_dir).load()
+    assert "__error__" in data["list"]
+    assert "__error__" in data["scalar"]
+    text = build_context(data)
+    assert "Файл list: не удалось прочитать" in text
+    assert "Файл scalar: не удалось прочитать" in text

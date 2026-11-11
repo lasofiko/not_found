@@ -24,8 +24,11 @@ class JSONLoader:
         result: dict[str, dict] = {}
         for path in sorted(self._directory.glob("*.json")):
             try:
-                result[path.stem] = json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as exc:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or any(not isinstance(metric, dict) for metric in data.values()):
+                    raise ValueError("Ожидался объект JSON с объектами показателей")
+                result[path.stem] = data
+            except (json.JSONDecodeError, OSError, ValueError) as exc:
                 result[path.stem] = {"__error__": str(exc)}
         return result
 

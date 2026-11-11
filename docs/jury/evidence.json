@@ -1,0 +1,49 @@
+{
+  "annual_data_version": "bb-provided-9205e8f76a45",
+  "annual_model": "bb-ml-6237c3f27262",
+  "annual_model_sha256": "dc0b7446eaab91b7a487074a016d863433e154d2576a42478834e65318581585",
+  "hypothesis_data_version": "bb-provided-395a8764f2d5",
+  "hypothesis_version": "bb-hyp-1d923a975bee",
+  "monthly_models": {
+    "kaliningrad_containers": {
+      "data_version": "bb-provided-7afd019e937e",
+      "model_version": "bb-port-c686b4cb47b0",
+      "selection_lock": "c899f80dc22b12be05b9335c2aff13d6545417bb6b6ece64d54be4e9685fe1ca",
+      "sha256": "62c0b4ca1f70697871ce972742ffecc889f20782d32eef7c349f2622e7c333c3"
+    },
+    "kaliningrad_ferries": {
+      "data_version": "bb-provided-7afd019e937e",
+      "model_version": "bb-port-5b1f25b217f5",
+      "selection_lock": "78c5041a7165e3ba7d68cd7914198557e428db0b0589d64ad39c7645a0641c1c",
+      "sha256": "a366185b0021023342adc261c2fb0b0958b1d67efd053e558dcc9279ab9b742f"
+    },
+    "kaliningrad_total": {
+      "data_version": "bb-provided-7afd019e937e",
+      "model_version": "bb-port-07d3622c6b83",
+      "selection_lock": "cd6b0614d8ed557e953bf7de53a4b9b176eebe116e61804a125566ec2bed6bd1",
+      "sha256": "752c9c9fdf3b596a236a36f96b2e0946f72aea890acd92d6985479a8b2626e4f"
+    },
+    "petropavlovsk_total": {
+      "data_version": "bb-provided-7afd019e937e",
+      "model_version": "bb-port-6454be65293a",
+      "selection_lock": "93de0337a38e2969e18a42f30510ed462197dc0727f1230d095d54fba6bb5dc7",
+      "sha256": "d29a68f961dca8d03073864cf59cb376d985b74c64de29c604e3abca70d620f9"
+    },
+    "vladivostok_total": {
+      "data_version": "bb-provided-7afd019e937e",
+      "model_version": "bb-port-6329b8d38370",
+      "selection_lock": "9972e91adf1c742e8b7a61750dbe391c7a5cad759f3a088fe5a9ea089f561592",
+      "sha256": "7d51954e3fa8a678d3eef265b2e4ffdf56cde6472327389f508d71f3271e3909"
+    }
+  },
+  "review": {
+    "basis": "Прямое подтверждение пользователя в сообщении от 10.11.2026",
+    "limitations": "Не подтверждает завершённую сверку всех ячеек. Идентификаторы источников, SHA-256 и локаторы проверенных ячеек не предоставлены; новые завершённые строки human-review-log.csv не создавались.",
+    "reported_at": "2026-11-10",
+    "reviewed_at": null,
+    "reviewed_cells": null,
+    "reviewer": "Петя",
+    "scope": "Подробная ручная сверка ячеек источников проекта; охват по целям не уточнён",
+    "status": "partial"
+  }
+}

@@ -9,6 +9,13 @@
 }
 
 * { box-sizing: border-box; }
+.chart-empty { padding: 32px 12px; color: var(--text-secondary); }
+.forecast-table { margin: 18px 0; }
+.table-scroll { overflow-x: auto; }
+.forecast-table table { width: 100%; border-collapse: collapse; }
+.forecast-table th, .forecast-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border-default); }
+.info-card code { overflow-wrap: anywhere; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
 #root { min-height: 100dvh; }
 .app-shell {
   --surface-page: #F4F5FA;

@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
         manifest: {
           name: 'FloCast',
           short_name: 'FloCast',
-          description: 'FloCast — синтетические примеры грузовых перевозок коридора, команда Not Found',
+          description: 'FloCast — экспериментальный прогноз годовой линии, синтетические примеры и сценарный калькулятор',
           theme_color: '#F4F5FA',
           background_color: '#F4F5FA',
           display: 'standalone',

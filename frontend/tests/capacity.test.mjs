@@ -6,6 +6,8 @@ import vm from 'node:vm'
 const script = readFileSync(new URL('../app.js', import.meta.url), 'utf8')
 
 const responseData = (overrides = {}) => ({
+  status: 'scenario',
+  unit: 'tonnes',
   period: '2027-01',
   baseline_shortfall_tonnes: 20,
   scenario_shortfall_tonnes: 0,
@@ -158,8 +160,7 @@ test('поля ответа выводятся текстом, без встав
   const page = await openCalculator()
   const calculation = page.submit()
   page.requests[0].reply(responseData({
-    period: '<img src=x onerror=alert(1)>',
-    warning: '<script>alert(2)</script>',
+    warning: '<img src=x onerror=alert(1)><script>alert(2)</script>',
     assumption_source: '<svg onload=alert(3)>& источник',
   }))
   await calculation

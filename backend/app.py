@@ -12,6 +12,7 @@ from backend.adapters.llm import AnalysisDataRepositoryAdapter, LLMGatewayAdapte
 from backend.api.router import router
 from backend.core.exceptions import register_exception_handlers
 from backend.core.settings import Settings
+from backend.forecast_service import ForecastService
 from backend.infrastructure.json_loader import JSONLoader
 from backend.infrastructure.llm_client import OpenAILLMClient
 from backend.use_cases.llm import AskTransportAssistant
@@ -41,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.basicConfig(level=config.log_level)
     application = FastAPI(title=config.app_name, version="0.2.0")
     application.state.settings = config
+    application.state.forecast_service = ForecastService()
     application.state.llm_use_case = _build_llm_use_case(config)
     application.add_middleware(
         CORSMiddleware,

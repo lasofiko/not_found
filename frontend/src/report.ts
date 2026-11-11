@@ -1,5 +1,17 @@
 import { DIRECTION_LABELS, SCENARIOS, selectDemoScenario } from './dashboard-data.ts'
 import type { ForecastConfig } from './dashboard-data.ts'
+import type { Forecast } from './api.ts'
+
+export function createForecastReport(result: Forecast): string {
+  const rows = [['period', 'value', 'unit', 'region', 'origin', 'destination', 'direction', 'mode', 'status', 'data_version', 'model_version', 'source_ids', 'lower_80', 'upper_80', 'lower_95', 'upper_95']]
+  for (const point of result.predictions) {
+    rows.push([point.period, String(point.value), result.unit, result.region, result.geography.origin,
+      result.geography.destination, result.direction, result.mode, result.result_type, result.data_version,
+      result.model_version, result.provenance.source_ids.join('|'), String(point.interval['80'].lower),
+      String(point.interval['80'].upper), String(point.interval['95'].lower), String(point.interval['95'].upper)])
+  }
+  return '\uFEFF' + rows.map(row => row.map(cell => '"' + cell.replaceAll('"', '""') + '"').join(';')).join('\r\n') + '\r\n'
+}
 
 export function createDemoReport(config: ForecastConfig): string {
   const result = selectDemoScenario(config)

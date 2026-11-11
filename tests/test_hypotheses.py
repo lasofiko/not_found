@@ -3,6 +3,7 @@
 import csv
 import json
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -201,6 +202,28 @@ class RunTests(unittest.TestCase):
         with TemporaryDirectory() as folder:
             with self.assertRaisesRegex(FileNotFoundError, "build_manifest"):
                 run_hypotheses(Path(folder))
+
+    def test_saved_annual_forecast_enables_year_specific_action_table(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._bundle(root)
+            (root / "models").mkdir()
+            (root / "models/latest.json").write_text("{}")
+            def saved_forecast(direction, end_year, root):
+                return {"predictions": [
+                    {"period": str(year), "value": 100.0, "interval": {"80": {"upper": 150.0}}}
+                    for year in (2027, 2028)]}
+            with patch("ml.hypotheses.forecast", side_effect=saved_forecast):
+                result = run_hypotheses(root)
+            with (result["output_dir"] / "action_scenarios.csv").open(encoding="utf-8-sig", newline="") as stream:
+                rows = list(csv.DictReader(stream))
+            reserve = {r["year"]: r for r in rows if r["direction"] == "inbound"
+                       and r["demand_case"] == "demand_x1_5" and r["action"] == "reserve_ferry"}
+            self.assertNotEqual(reserve["2027"]["reserve_gain_share"], "")
+            self.assertEqual(reserve["2028"]["capacity_action_tonnes"], "")
+            self.assertEqual(reserve["2027"]["capacity_rail_limited_tonnes"], "")
+            report = (result["output_dir"] / "hypotheses-report.md").read_text()
+            self.assertIn("Прирост от резерва", report)
 
     def test_shipped_fleet_path_exists(self):
         self.assertTrue(FLEET_PATH.is_file())

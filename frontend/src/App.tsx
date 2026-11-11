@@ -4,17 +4,28 @@ import {
   Database, Download, Info, Layers3, LayoutDashboard, MapPin,
   Menu, Moon, Paperclip, RotateCcw, Route, Sparkles, Sun, Truck, X,
 } from 'lucide-react'
-import { DynamicsChart, HypothesisChart, VolumeChart } from './ChartPanels'
+import {
+  DynamicsChart,
+  ForecastDynamicsChart,
+  ForecastVolumeChart,
+  HypothesisChart,
+  ModelQualityChart,
+  VolumeChart,
+} from './ChartPanels'
 import {
   DEFAULT_CONFIG,
+  DIRECTION_LABELS,
   SCENARIOS,
   selectDemoScenario,
   formatNumber,
   signed,
+  type Direction,
   type ForecastConfig,
   type Scenario,
 } from './dashboard-data'
-import { createDemoReport } from './report'
+import { forecastSchema, getApiBase, requestJson, scenarioSchema } from './api'
+import type { Forecast, ScenarioDefinition } from './api'
+import { createDemoReport, createForecastReport } from './report'
 import { TransportGallery } from './TransportGallery'
 import { FilterSelect } from './FilterSelect'
 import { GeographyFilters } from './GeographyFilters'
@@ -160,8 +171,8 @@ export default function App() {
   const selectedMap = mapLinks(appliedGeo, applied.direction)
   const corridorLabel = CORRIDORS.find(({ id }) => id === appliedGeo.corridor)!.label
   const coverageMessage = hasDemo
-    ? 'Доступен синтетический пример Калининградского коридора. Проверенные наблюдения и модель не подключены.'
-    : 'Данные и модель для выбранного направления не подключены. Городской или региональный прогноз пока недоступен.'
+    ? 'Это синтетический пример Калининградского коридора, а не наблюдения или прогноз. Проверенный годовой ML-прогноз показан отдельно ниже.'
+    : 'Синтетический пример для выбранной детализации недоступен. Годовой ML-прогноз ниже относится только к линии Усть-Луга — Балтийск.'
   const unavailable = <div className="coverage-empty"><MapPin size={25} /><h3>Нет данных для выбранной детализации</h3><p>{coverageMessage}</p></div>
   const scenarioTitle = SCENARIOS.find((scenario) => scenario.id === applied.scenario)?.title ?? 'Базовый сценарий'
 
@@ -173,6 +184,16 @@ export default function App() {
   const [chatError, setChatError] = useState<string | null>(null)
   const summaryRequestedRef = useRef(false)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
+  const [forecastDraft, setForecastDraft] = useState<{ direction: Direction; end_year: number }>({ direction: 'inbound', end_year: 2030 })
+  const [forecastResult, setForecastResult] = useState<Forecast | null>(null)
+  const [forecastStatus, setForecastStatus] = useState('Загрузка прогноза…')
+  const [forecastLoading, setForecastLoading] = useState(true)
+  const [forecastRetry, setForecastRetry] = useState(0)
+  const [scenarioDefinitions, setScenarioDefinitions] = useState<ScenarioDefinition[]>([])
+  const [scenarioRegistryError, setScenarioRegistryError] = useState('')
+  const forecastSequence = useRef(0)
+  const lastForecast = forecastResult?.predictions.at(-1)
+  const forecastSource = forecastResult?.provenance.sources[0]
 
   useEffect(() => {
     const element = chatMessagesRef.current
@@ -254,6 +275,55 @@ export default function App() {
     }
     loadConfig()
   }, [])
+
+  useEffect(() => {
+    const id = ++forecastSequence.current
+    const controller = new AbortController()
+    Promise.resolve().then(async () => {
+      if (controller.signal.aborted) return
+      setForecastLoading(true)
+      setForecastStatus('Загрузка прогноза…')
+      setForecastResult(null)
+      try {
+        const base = await getApiBase(controller.signal)
+        const registry = requestJson(base + '/scenarios', value => scenarioSchema.parse(value), controller.signal)
+          .then(rows => {
+            if (id === forecastSequence.current) {
+              setScenarioDefinitions(rows)
+              setScenarioRegistryError('')
+            }
+          })
+          .catch(() => {
+            if (id === forecastSequence.current) setScenarioRegistryError('Реестр действий недоступен. Повторите запрос.')
+          })
+        const query = new URLSearchParams({
+          region: 'kaliningrad',
+          direction: forecastDraft.direction,
+          mode: 'sea',
+          end_year: String(forecastDraft.end_year),
+        })
+        try {
+          const response = await requestJson(base + '/forecasts?' + query, value => forecastSchema.parse(value), controller.signal)
+          if (response.direction !== forecastDraft.direction || response.predictions.at(-1)?.period !== String(forecastDraft.end_year)) {
+            throw new Error('API вернул другой срез прогноза.')
+          }
+          if (id === forecastSequence.current) {
+            setForecastResult(response)
+            setForecastStatus('Проверенный артефакт загружен')
+          }
+        } finally {
+          await registry
+        }
+      } catch (error) {
+        if (id === forecastSequence.current && !controller.signal.aborted) {
+          setForecastStatus(error instanceof Error ? error.message : 'Ошибка загрузки прогноза')
+        }
+      } finally {
+        if (id === forecastSequence.current) setForecastLoading(false)
+      }
+    })
+    return () => controller.abort()
+  }, [forecastDraft, forecastRetry])
 
   const callAssistant = useCallback(async (endpoint: 'summary' | 'ask', body?: { question: string }) => {
     if (!apiBase) {
@@ -351,6 +421,16 @@ export default function App() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  const exportForecast = () => {
+    if (!forecastResult) return
+    const url = URL.createObjectURL(new Blob([createForecastReport(forecastResult)], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `FloCast_${forecastResult.direction}_${forecastResult.predictions.at(-1)?.period}_forecast.csv`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   const insight = 'Синтетические примеры для проверки интерфейса. Эффекты действий и два основных сценария командой не утверждены.'
 
 
@@ -372,7 +452,7 @@ export default function App() {
       <main className="dashboard" id="main-content" tabIndex={-1}>
         <header className="topbar">
           <a href="#overview" className="wordmark">Flo<span>Cast</span><small>ГРУЗОВЫЕ КОРИДОРЫ — 2030</small></a>
-          <div className="topbar-actions"><span className="tag"><i />{hasDemo ? 'ДЕМО · СИНТЕТИЧЕСКИЕ ДАННЫЕ' : 'ДАННЫЕ НЕ ПОДКЛЮЧЕНЫ'}</span>
+          <div className="topbar-actions"><span className="tag"><i />{forecastResult ? 'ML-ПРОГНОЗ · СИНТЕТИЧЕСКИЕ ПРИМЕРЫ' : hasDemo ? 'ДЕМО · СИНТЕТИЧЕСКИЕ ДАННЫЕ' : 'ДАННЫЕ НЕ ПОДКЛЮЧЕНЫ'}</span>
             <button className="icon-button theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} aria-label={theme === 'light' ? 'Включить тёмную тему' : 'Включить светлую тему'}>{theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}</button>
           </div>
         </header>
@@ -385,7 +465,7 @@ export default function App() {
             <div className="hero-logo">FloCast<span>.</span></div>
             <h1 id="hero-title">Исследуем грузопотоки.<br /><em>Моделируем будущее.</em></h1>
             <p className="hero-description">Калининградская область, Приморский край и Камчатка: исследуем связи с остальной Россией.</p>
-            <div className="hero-actions"><a className="button-primary" href="#analytics">Исследовать данные <ArrowRight size={17} /></a><a className="button-secondary" href="#forecast">Посмотреть демо <ArrowUpRight size={17} /></a></div>
+            <div className="hero-actions"><a className="button-primary" href="#analytics">Исследовать данные <ArrowRight size={17} /></a><a className="button-secondary" href="#forecast">Посмотреть прогноз <ArrowUpRight size={17} /></a></div>
           </div>
         </section>
 
@@ -429,20 +509,44 @@ export default function App() {
         </section>
 
         <section className="section" id="forecast" aria-labelledby="forecast-title">
-          <div className="section-heading"><div><p className="eyebrow">Прогнозный контур</p><h2 id="forecast-title">Взгляд на горизонт.</h2></div><span className="section-number">ПРОГНОЗ</span></div>
-          <div className="forecast-banner"><div><span className="tag">МОДЕЛЬ НЕ ПОДКЛЮЧЕНА</span><h3>От данных к обоснованному прогнозу</h3></div><button className="button-secondary" onClick={exportReport}><Download size={17} />{hasDemo ? 'Экспорт демо CSV' : 'Экспорт выбора CSV'}</button></div>
+          <div className="section-heading"><div><p className="eyebrow">Прогнозный контур</p><h2 id="forecast-title">Взгляд на горизонт.</h2><p>Экспериментальная годовая линия Усть-Луга — Балтийск, 2024–2030.</p></div><span className="section-number">ПРОГНОЗ</span></div>
+          <div className="forecast-banner"><div><span className="tag">{forecastResult ? 'ПРОГНОЗ · ПРОВЕРЕННЫЙ АРТЕФАКТ' : 'МОДЕЛЬ НЕ ПОДКЛЮЧЕНА'}</span><h3>Годовой прогноз перевезённой массы</h3><p>История 2015–2023, тонны за год. Это не синтетический пример выше и не весь грузовой коридор. Точность до 2030 года не подтверждена.</p></div><button className="button-secondary" onClick={exportForecast} disabled={!forecastResult || forecastLoading}><Download size={17} />Экспорт прогноза CSV</button></div>
+          <div className="filterbar">
+            <div className="filters geography-actions">
+              <FilterSelect label="Направление прогноза" value={forecastDraft.direction} onChange={(direction) => setForecastDraft({ ...forecastDraft, direction: direction as Direction })} options={(['inbound', 'outbound'] as Direction[]).map(direction => ({ value: direction, label: DIRECTION_LABELS[direction] }))} />
+              <FilterSelect label="Конечный год" value={String(forecastDraft.end_year)} onChange={(year) => setForecastDraft({ ...forecastDraft, end_year: Number(year) })} options={[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(year => ({ value: String(year), label: String(year) }))} />
+              <button className="button-secondary" onClick={() => setForecastRetry(value => value + 1)} disabled={forecastLoading}><RotateCcw size={16} />Обновить прогноз</button>
+            </div>
+            <p className="filter-status" role="status" aria-live="polite" aria-busy={forecastLoading}>{forecastStatus}</p>
+          </div>
+          <div className="kpi-grid">
+            <article className="kpi-card"><div className="kpi-top"><span>Прогноз на {lastForecast?.period ?? forecastDraft.end_year}</span><Box size={19} /></div><div className="kpi-value">{lastForecast ? formatNumber(lastForecast.value) : '—'}<small>т/год</small></div><div className="kpi-bottom">Перевезённая масса линии</div></article>
+            <article className="kpi-card"><div className="kpi-top"><span>История модели</span><Clock3 size={19} /></div><div className="kpi-value">{forecastResult?.observations ?? '—'}<small>годовых наблюдений</small></div><div className="kpi-bottom">{forecastResult ? `${forecastResult.training_period.start}–${forecastResult.training_period.end}` : 'Модель недоступна'}</div></article>
+            <article className="kpi-card"><div className="kpi-top"><span>Метод</span><MapPin size={19} /></div><div className="kpi-value">{forecastResult?.selected_model ?? '—'}</div><div className="kpi-bottom">Выбор на 2020–2021</div></article>
+            <article className="kpi-card"><div className="kpi-top"><span>MAE проверки</span><Layers3 size={19} /></div><div className="kpi-value">{forecastResult?.metrics.selected.holdout.MAE != null ? formatNumber(forecastResult.metrics.selected.holdout.MAE) : '—'}<small>т</small></div><div className="kpi-bottom">2022–2023 · горизонт один год</div></article>
+          </div>
+          <div className="charts-grid">
+            <article className="panel"><div className="panel-top"><div><h3>Перевезённая масса</h3><p>Прогноз · т/год</p></div><span className="tag">FORECAST</span></div><ForecastVolumeChart result={forecastResult} light={theme === 'light'} /></article>
+            <article className="panel"><div className="panel-top"><div><h3>Динамика и неопределённость</h3><p>Условный интервал 95%</p></div><span className="tag">FORECAST</span></div><ForecastDynamicsChart result={forecastResult} light={theme === 'light'} /></article>
+            <article className="panel"><div className="panel-top"><div><h3>Качество и baseline</h3><p>MAE на 2022–2023, т</p></div><span className="tag">BACKTEST</span></div><ModelQualityChart result={forecastResult} light={theme === 'light'} /></article>
+          </div>
+          {forecastResult && <article className="panel forecast-table"><div className="panel-top"><h3>Значения прогноза</h3><span className="tag">т/год</span></div><div className="table-scroll"><table><thead><tr><th>Год</th><th>Прогноз, т</th><th>Нижняя 95%, т</th><th>Верхняя 95%, т</th></tr></thead><tbody>{forecastResult.predictions.map(point => <tr key={point.period}><td>{point.period}</td><td>{formatNumber(point.value)}</td><td>{formatNumber(point.interval['95'].lower)}</td><td>{formatNumber(point.interval['95'].upper)}</td></tr>)}</tbody></table></div></article>}
         </section>
 
         <section className="section" id="scenarios" aria-labelledby="scenarios-title">
           <div className="section-heading"><div><p className="eyebrow">Сценарный анализ</p><h2 id="scenarios-title">Что, если изменить условия?</h2></div><span className="section-number">СЦЕНАРИИ</span></div>
           <div className="scenario-layout"><div className="scenario-options">{SCENARIOS.map((scenario) => <button disabled={!hasDemo} key={scenario.id} className={`scenario-option ${applied.scenario === scenario.id ? 'selected' : ''}`} aria-pressed={applied.scenario === scenario.id} onClick={() => { setDraft({ ...applied, scenario: scenario.id }); setApplied({ ...applied, scenario: scenario.id }) }}><span><strong>{scenario.title}</strong><small>{scenario.description}</small></span><ArrowUpRight size={17} /></button>)}<p className="tiny-note">{insight}</p><a className="button-secondary" href="/capacity">Калькулятор мощности <ArrowRight size={16} /></a></div>
           <article className="panel"><div className="panel-top"><div><h3>Сопоставление гипотез</h3><p>2030 · синтетические объём и время доставки</p></div><span className="tag">ДЕМО</span></div>{hasDemo ? <HypothesisChart data={result.hypotheses} timeUnit={result.timeUnit} light={theme === 'light'} /> : unavailable}</article></div>
+          <div className="forecast-banner"><div><span className="tag">РЕЕСТР BACKEND</span><h3>Транспортные действия</h3><p>Определения загружаются из `/api/v1/scenarios`. Численный эффект рассчитывается только как чувствительность к вводу пользователя.</p></div><a className="button-secondary" href="/capacity">Калькулятор мощности <ArrowRight size={16} /></a></div>
+          {scenarioRegistryError && <p className="chat-error" role="alert">{scenarioRegistryError} <button className="text-button" onClick={() => setForecastRetry(value => value + 1)}>Повторить</button></p>}
+          <div className="data-grid">{scenarioDefinitions.filter(scenario => scenario.label).map(scenario => <article className="panel" key={scenario.id}><h3>{scenario.label}. {scenario.name}</h3><p>{scenario.mechanism}</p><p>{scenario.limitation}</p><span className="tag">{scenario.calculation_status}</span></article>)}</div>
         </section>
 
         <section className="section ai-feature" aria-labelledby="ai-title"><img src="./images/logistics.jpg" alt="" loading="lazy" /><div className="ai-feature-shade" /><div className="ai-feature-copy"><p className="eyebrow">Помощник исследователя</p><h2 id="ai-title">Больше контекста.<br /><em>Больше понимания.</em></h2><p>Обсудите транспортную связанность, ограничения данных и вопросы для дальнейшего исследования.</p><div className="ai-feature-tags"><span>Данные и источники</span><span>Транспорт</span><span>Гипотезы</span></div><button className="button-primary" onClick={() => setAssistantOpen(true)}><Sparkles size={17} />Открыть AI-ассистента</button><p className="tiny-note">Ассистент работает через backend проекта. Ответы формируются по переданному контексту.</p></div></section>
 
         <section className="section" id="data" aria-labelledby="data-title"><div className="section-heading"><div><p className="eyebrow">Прозрачность исследования</p><h2 id="data-title">Данные и их границы.</h2></div><span className="section-number">ДАННЫЕ</span></div><div className="data-grid">
-          <article className="panel"><Database size={23} /><h3>Происхождение чисел</h3><button className="text-button" onClick={exportReport}>Скачать пример и описание <Download size={15} /></button></article>
+          <article className="panel"><Database size={23} /><h3>Источник и версии прогноза</h3>{forecastResult ? <><p>{forecastSource?.organization}</p>{forecastSource && <p><a href={forecastSource.url} target="_blank" rel="noreferrer">Открыть источник</a></p>}<p>Модель <code>{forecastResult.model_version}</code></p><p>Данные <code>{forecastResult.data_version}</code></p><p>{forecastResult.geography.scope}</p>{forecastResult.warnings.map(warning => <p key={warning}>{warning}</p>)}</> : <p>Источник появится после успешной проверки артефакта. При ошибке значения не подставляются.</p>}</article>
+          <article className="panel"><Database size={23} /><h3>Происхождение демо-чисел</h3><p>Все числа аналитического примера вымышлены и имеют статус synthetic.</p><button className="text-button" onClick={exportReport}>Скачать пример и описание <Download size={15} /></button></article>
           <article className="panel"><Info size={23} /><h3>Покрытие</h3><p>{coverageMessage} Выбор города не создаёт наблюдений по нему.</p></article>
           <article className="panel"><CheckCircle2 size={23} /><h3>Следующий шаг</h3><p>Команде предстоит выбрать целевой ряд, утвердить две гипотезы и параметры, проверить источники и принять результаты временной проверки модели.</p></article>
         </div></section>

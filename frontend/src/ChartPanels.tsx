@@ -17,3 +17,19 @@ export function VolumeChart(props: ComponentProps<typeof Charts.VolumeChart>) {
 export function HypothesisChart(props: ComponentProps<typeof Charts.HypothesisChart>) {
   return <Suspense fallback={fallback}><Hypothesis {...props} /></Suspense>
 }
+
+const ForecastDynamics = lazy(() => import('./ForecastCharts').then((module) => ({ default: module.ForecastDynamicsChart })))
+const ForecastVolume = lazy(() => import('./ForecastCharts').then((module) => ({ default: module.ForecastVolumeChart })))
+const ModelQuality = lazy(() => import('./ForecastCharts').then((module) => ({ default: module.ModelQualityChart })))
+
+export function ForecastDynamicsChart(props: ComponentProps<typeof Charts.ForecastDynamicsChart>) {
+  return <Suspense fallback={fallback}><ForecastDynamics {...props} /></Suspense>
+}
+
+export function ForecastVolumeChart(props: ComponentProps<typeof Charts.ForecastVolumeChart>) {
+  return <Suspense fallback={fallback}><ForecastVolume {...props} /></Suspense>
+}
+
+export function ModelQualityChart(props: ComponentProps<typeof Charts.ModelQualityChart>) {
+  return <Suspense fallback={fallback}><ModelQuality {...props} /></Suspense>
+}
