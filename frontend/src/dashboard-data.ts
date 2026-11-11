@@ -1,3 +1,4 @@
+// Legacy fixtures retained for regression tests. Live actions come from /scenarios.
 import fixtures from './demo-fixtures.json' with { type: 'json' }
 
 export type Direction = 'inbound' | 'outbound'

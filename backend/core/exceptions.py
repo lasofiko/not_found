@@ -12,9 +12,11 @@ from backend.schemas.common import ErrorBody, ErrorResponse
 logger = logging.getLogger(__name__)
 
 
-def error_response(status_code: int, code: str, message: str, details: list[dict] | None = None) -> JSONResponse:
+def error_response(
+    status_code: int, code: str, message: str, details: list[dict] | None = None, headers: dict | None = None
+) -> JSONResponse:
     body = ErrorResponse(error=ErrorBody(code=code, message=message, details=details or []))
-    return JSONResponse(status_code=status_code, content=body.model_dump())
+    return JSONResponse(status_code=status_code, content=body.model_dump(), headers=headers)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -30,7 +32,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def http_error(_request: Request, exc: HTTPException) -> JSONResponse:
         code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(exc.status_code, "HTTP_ERROR")
         message = {404: "Маршрут не найден", 405: "Метод не поддерживается"}.get(exc.status_code, str(exc.detail))
-        return error_response(exc.status_code, code, message)
+        return error_response(exc.status_code, code, message, headers=exc.headers)
 
     @app.exception_handler(Exception)
     async def internal_error(_request: Request, exc: Exception) -> JSONResponse:

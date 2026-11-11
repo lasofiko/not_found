@@ -13,7 +13,7 @@ export default defineConfig({
       manifest: {
         name: 'FloCast',
         short_name: 'FloCast',
-        description: 'FloCast — синтетические примеры грузовых перевозок коридора, команда Not Found',
+        description: 'FloCast — экспериментальный прогноз годовой линии и сценарный калькулятор',
         theme_color: '#030C1B',
         background_color: '#030C1B',
         display: 'standalone',
@@ -38,6 +38,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: Object.fromEntries(['/api', '/config.json', '/capacity', '/app.js'].map(prefix => [prefix, { target: 'http://127.0.0.1:8000', changeOrigin: true }])),
   },
   resolve: {
     alias: {

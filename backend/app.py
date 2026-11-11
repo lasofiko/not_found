@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.api.router import router
 from backend.core.exceptions import register_exception_handlers
 from backend.core.settings import Settings
+from backend.forecast_service import ForecastService
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
@@ -21,6 +22,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.basicConfig(level=config.log_level)
     application = FastAPI(title=config.app_name, version="0.2.0")
     application.state.settings = config
+    application.state.forecast_service = ForecastService()
     application.add_middleware(
         CORSMiddleware,
         allow_origins=config.cors_origins,

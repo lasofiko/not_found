@@ -34,3 +34,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.setuptools.packages.find]
 include = ["backend*", "pipeline*", "ml*"]
+
+[tool.setuptools.package-data]
+backend = ["scenario_registry.json"]

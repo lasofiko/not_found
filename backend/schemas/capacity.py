@@ -18,6 +18,8 @@ class CapacityInput(BaseModel):
     @field_validator("demand_tonnes", "capacity_tonnes", "capacity_delta_tonnes", mode="before")
     @classmethod
     def finite_number(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("Логическое значение не является массой")
         try:
             number = float(value)
         except (TypeError, ValueError):
@@ -26,6 +28,14 @@ class CapacityInput(BaseModel):
             raise ValueError("Значение выходит за диапазон конечных чисел float64") from exc
         if not math.isfinite(number):
             raise ValueError("Значение должно быть конечным числом в диапазоне float64")
+        return value
+
+    @field_validator("assumption_source")
+    @classmethod
+    def valid_source(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > 2000:
+            raise ValueError("Укажите источник длиной от 1 до 2000 символов")
         return value
 
     @field_validator("period")
