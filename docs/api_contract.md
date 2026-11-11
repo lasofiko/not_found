@@ -74,15 +74,28 @@ HTTP 200:
 
 ### `GET /llm/summary`
 
-HTTP 200: `{"answer":"..."}`. Формирует автоматическую сводку по JSON-контексту из `backend/jsons/`. Ответ LLM — интерпретация переданных данных, а не наблюдение, прогноз или сценарный расчёт.
+HTTP 200: `{"answer":"...", "result_type":"interpretation", "context":{...}}`.
+`context` — тот же проверенный `ForecastResponse`, который передан LLM через
+ForecastService. Query-параметры: `region=kaliningrad`, `direction=inbound`,
+`mode=sea`, `end_year=2030`, `study_city=all`, `other_region=all`, `other_city=all`.
+Поддержаны оба направления и годы 2024–2030. Прогноз узкой линии не становится
+фактом, спросом, мощностью или показателем всего коридора.
 
-HTTP 404 / `LLM_DATA_NOT_FOUND` — нет JSON-файлов контекста. HTTP 503 / `LLM_NOT_CONFIGURED` — не заданы `BB_LLM_BASE_URL`, `BB_LLM_API_KEY` или `BB_LLM_MODEL`. HTTP 502 / `LLM_UPSTREAM_ERROR` — ошибка или недоступность LLM-провайдера.
+HTTP 404 / `LLM_DATA_NOT_FOUND` — нет модели; 404 / `LLM_CONTEXT_NOT_AVAILABLE` —
+неподключённая география, вид или детализация; 500 / `LLM_CONTEXT_INVALID` —
+повреждённый артефакт. HTTP 503 / `LLM_NOT_CONFIGURED` — не заданы
+`BB_LLM_BASE_URL`, `BB_LLM_API_KEY` или `BB_LLM_MODEL`. HTTP 502 /
+`LLM_UPSTREAM_ERROR` — ошибка или недоступность LLM-провайдера.
 
 ### `POST /llm/ask`
 
-Тело: `{"question":"..."}`. Вопрос обрезается (`strip()`), должен содержать от 1 до 4000 символов. HTTP 200: `{"answer":"..."}`. Ответ строится только по переданному контексту; модель не должна выдумывать показатели.
+Тело: `{"question":"...", "direction":"outbound"}`; вместе с вопросом принимаются
+те же поля выбора, что в `/llm/summary`. Вопрос обрезается (`strip()`), должен
+содержать от 1 до 4000 символов. Ответ HTTP 200 имеет тот же envelope с `answer`,
+`result_type` и `context`, что сводка; контекст формируется сервером.
 
-HTTP 422 / `VALIDATION_ERROR` — пустой или слишком длинный вопрос. HTTP 404 / `LLM_DATA_NOT_FOUND`, HTTP 503 / `LLM_NOT_CONFIGURED`, HTTP 502 / `LLM_UPSTREAM_ERROR` — см. `/llm/summary`.
+HTTP 422 / `VALIDATION_ERROR` — пустой или слишком длинный вопрос, неверный год или
+направление. Остальные ошибки контекста и провайдера — как в `/llm/summary`.
 
 ## Ошибки
 

@@ -25,6 +25,8 @@ import {
 } from './dashboard-data'
 import { forecastSchema, getApiBase, requestJson, scenarioSchema } from './api'
 import type { Forecast, ScenarioDefinition } from './api'
+import { appendAssistantReply, assistantSelection, createAssistantRequests, isAssistantSelectionSupported, requestAssistant } from './assistant'
+import type { AssistantMessage } from './assistant'
 import { createDemoReport, createForecastReport } from './report'
 import { TransportGallery } from './TransportGallery'
 import { FilterSelect } from './FilterSelect'
@@ -44,7 +46,6 @@ function formatTime(date: Date = new Date()): string {
   })
 }
 type Theme = 'dark' | 'light'
-type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string; createdAt: string }
 
 const navItems = [
   { id: 'overview', label: 'Обзор', icon: LayoutDashboard },
@@ -181,12 +182,23 @@ export default function App() {
   const [apiBase, setApiBase] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const [configRetry, setConfigRetry] = useState(0)
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
+  const [chatHistory, setChatHistory] = useState<AssistantMessage[]>([])
   const [questionInput, setQuestionInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const summaryRequestedRef = useRef(false)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
+  const chatRequests = useRef(createAssistantRequests())
+  const assistantChoice = useMemo(() => assistantSelection(appliedGeo, applied.direction), [appliedGeo, applied.direction])
+  const assistantSupported = isAssistantSelectionSupported(assistantChoice)
+  const assistantKey = JSON.stringify([apiBase, assistantChoice])
+  const [chatContextKey, setChatContextKey] = useState('')
+  const [chatContext, setChatContext] = useState<Forecast | null>(null)
+  const currentChat = chatContextKey === assistantKey
+  const visibleChatHistory = currentChat ? chatHistory : []
+  const visibleChatContext = currentChat ? chatContext : null
+  const visibleChatError = currentChat ? chatError : null
+  const chatLoading = currentChat && isLoading
   const [forecastDraft, setForecastDraft] = useState<{ direction: Direction; end_year: number }>({ direction: 'inbound', end_year: 2030 })
   const [forecastResult, setForecastResult] = useState<Forecast | null>(null)
   const [forecastStatus, setForecastStatus] = useState('Загрузка прогноза…')
@@ -342,63 +354,69 @@ export default function App() {
     return () => controller.abort()
   }, [forecastDraft, forecastRetry])
 
-  const callAssistant = useCallback(async (endpoint: 'summary' | 'ask', body?: { question: string }) => {
-    if (!apiBase) throw new Error(apiError || 'Адрес API не настроен')
-    return requestJson(apiBase + '/llm/' + endpoint, (data) => {
-      const answer = (data as { answer?: unknown } | null)?.answer
-      if (typeof answer !== 'string' || !answer.trim()) throw new Error('Сервер вернул ответ без текста.')
-      return answer
-    }, undefined, 65000, {
-      method: endpoint === 'summary' ? 'GET' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-  }, [apiBase, apiError])
-
-  const fetchSummary = useCallback(async () => {
-    if (!assistantOpen || !apiBase) return
-    summaryRequestedRef.current = true
-    setIsLoading(true)
+  const clearChat = useCallback(() => {
+    chatRequests.current.cancel()
+    summaryRequestedRef.current = false
+    setChatHistory([])
+    setQuestionInput('')
     setChatError(null)
-    try {
-      const answer = await callAssistant('summary')
-      const now = formatTime()
-      setChatHistory((prev) => [
-        ...prev,
-        { role: 'system', content: 'Автоматическая сводка по данным дашборда', createdAt: now },
-        { role: 'assistant', content: answer, createdAt: now },
-      ])
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Не удалось получить сводку')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [assistantOpen, apiBase, callAssistant])
+    setChatContext(null)
+    setIsLoading(false)
+    setChatContextKey(assistantKey)
+  }, [assistantKey])
 
   useEffect(() => {
-    if (assistantOpen && apiBase && chatHistory.length === 0 && !summaryRequestedRef.current && !chatError) {
-      fetchSummary()
+    const requests = chatRequests.current
+    let active = true
+    requests.cancel()
+    void Promise.resolve().then(() => { if (active) clearChat() })
+    return () => { active = false; requests.cancel() }
+  }, [clearChat])
+
+  const fetchSummary = useCallback(async () => {
+    if (!assistantOpen || !apiBase || !assistantSupported || !currentChat) return
+    await chatRequests.current.run(signal => requestAssistant(apiBase, assistantChoice, signal), {
+      start: () => {
+        summaryRequestedRef.current = true
+        setIsLoading(true)
+        setChatError(null)
+      },
+      success: (response) => {
+        setChatContext(response.context)
+        setChatHistory((prev) => appendAssistantReply(prev, chatContext, response, formatTime()))
+      },
+      error: (error) => setChatError(error instanceof Error ? error.message : 'Не удалось получить сводку'),
+      settled: () => setIsLoading(false),
+    })
+  }, [assistantOpen, apiBase, assistantSupported, currentChat, assistantChoice, chatContext])
+
+  useEffect(() => {
+    if (assistantOpen && apiBase && assistantSupported && currentChat && chatHistory.length === 0 && !summaryRequestedRef.current && !chatError) {
+      void fetchSummary()
     }
-  }, [assistantOpen, apiBase, chatHistory.length, chatError, fetchSummary])
+  }, [assistantOpen, apiBase, assistantSupported, currentChat, chatHistory.length, chatError, fetchSummary])
 
   async function handleAsk(event: React.FormEvent) {
     event.preventDefault()
     const question = questionInput.trim()
-    if (!question || isLoading) return
-    setQuestionInput('')
-    setChatError(null)
-    const now = formatTime()
-    setChatHistory((prev) => [...prev, { role: 'user', content: question, createdAt: now }])
-    setIsLoading(true)
-    try {
-      const answer = await callAssistant('ask', { question })
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: answer, createdAt: formatTime() }])
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Не удалось получить ответ')
-      setQuestionInput(question)
-    } finally {
-      setIsLoading(false)
-    }
+    if (!question || isLoading || !apiBase || !assistantSupported || !currentChat) return
+    await chatRequests.current.run(signal => requestAssistant(apiBase, assistantChoice, signal, question), {
+      start: () => {
+        setQuestionInput('')
+        setChatError(null)
+        setChatHistory((prev) => [...prev, { role: 'user', content: question, createdAt: formatTime() }])
+        setIsLoading(true)
+      },
+      success: (response) => {
+        setChatContext(response.context)
+        setChatHistory((prev) => appendAssistantReply(prev, chatContext, response, formatTime(), question))
+      },
+      error: (error) => {
+        setChatError(error instanceof Error ? error.message : 'Не удалось получить ответ')
+        setQuestionInput(question)
+      },
+      settled: () => setIsLoading(false),
+    })
   }
 
   const calculate = () => {
@@ -561,32 +579,42 @@ export default function App() {
 
       {assistantOpen && <button className="assistant-backdrop" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента" />}
 
-      <aside className={`assistant-panel ${assistantOpen ? 'is-open' : ''}`} aria-label="AI-ассистент по данным дашборда">
+      <aside className={`assistant-panel ${assistantOpen ? 'is-open' : ''}`} aria-label="AI-ассистент по годовому прогнозу линии">
         <header className="assistant-header">
           <Sparkles size={22} />
           <div>
             <h2>AI-ассистент</h2>
-            <p>Yandex AI Studio · через backend</p>
+            <p>Годовой прогноз · через backend</p>
           </div>
           <button className="assistant-close" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента"><X size={24} /></button>
         </header>
 
         <div className="assistant-context">
-          <div><MapPin size={15} /><span>{selectedRoute.from.label} → {selectedRoute.to.label}</span><span className="context-separator">·</span><span>2030</span></div>
-          <p>{hasDemo ? 'Море · синтетический пример' : 'Данные не подключены'}</p>
+          <div><MapPin size={15} /><span>Выбрано: {selectedRoute.from.label} → {selectedRoute.to.label}</span></div>
+          {assistantSupported ? <>
+            <p>Запрошен годовой прогноз линии Усть-Луга — Балтийск, {DIRECTION_LABELS[applied.direction]}, 2024–2030 · т/год. Это часть коридора; городская детализация отсутствует.</p>
+            {visibleChatContext && <details className="assistant-provenance"><summary>Охват, источники и ограничения контекста</summary>
+              <p>{visibleChatContext.geography.origin} → {visibleChatContext.geography.destination}. {visibleChatContext.geography.scope}</p>
+              <p>Статус: прогноз (forecast); точка выдачи: {visibleChatContext.forecast_origin}. История: {visibleChatContext.training_period.start}–{visibleChatContext.training_period.end}.</p>
+              <p>Модель: <code>{visibleChatContext.model_version}</code><br />Данные: <code>{visibleChatContext.data_version}</code></p>
+              {visibleChatContext.provenance.sources.map(source => <p key={source.source_id}><a href={source.url} target="_blank" rel="noreferrer">{source.organization}</a> · {source.source_id}</p>)}
+              {visibleChatContext.warnings.map(warning => <p key={warning}>{warning}</p>)}
+            </details>}
+          </> : <p role="status">Для выбранной географии и детализации контекст не подключён.</p>}
         </div>
 
         <div ref={chatMessagesRef} className="chat-messages" aria-live="polite" aria-label="История диалога">
-          {chatHistory.length === 0 && !chatError && (
+          {visibleChatHistory.length === 0 && !visibleChatError && (
             <div className="chat-welcome">
               <Sparkles size={28} />
-              <p>{isLoading ? 'Формирую краткую сводку…' : 'Здравствуйте'}</p>
-              <span>{isLoading
-                ? 'Ассистент отвечает по контексту из JSON-файлов backend'
-                : 'Готов ответить по данным дашборда. Сводка загружается автоматически.'}</span>
+              <p>{chatLoading ? 'Формирую краткую сводку…' : assistantSupported ? 'Здравствуйте' : 'Нет подключённых данных'}</p>
+              <span>{!assistantSupported
+                ? 'Выберите Калининградскую область без города и «Вся остальная Россия» с другой стороны. Доступна только узкая морская линия.'
+                : chatLoading ? 'Ассистент интерпретирует проверенный артефакт прогноза; синтетические примеры не передаются.'
+                  : 'Сводка годового прогноза загружается автоматически. Ответы сохраняют ограничения исходной модели.'}</span>
             </div>
           )}
-          {chatHistory.map((message, index) => (
+          {visibleChatHistory.map((message, index) => (
             <div key={index} className={`chat-message ${message.role}`}>
               <div
                 className="chat-message-content"
@@ -602,7 +630,7 @@ export default function App() {
               )}
             </div>
           ))}
-          {isLoading && (
+          {chatLoading && (
             <div className="chat-loading" aria-label="Ассистент печатает">
               <span className="chat-loading-dot" />
               <span className="chat-loading-dot" />
@@ -611,13 +639,13 @@ export default function App() {
           )}
         </div>
 
-        {(chatError || apiError) && <div className="chat-error" role="alert">{chatError || apiError}{apiError && <button className="text-button" onClick={() => setConfigRetry(value => value + 1)}>Повторить подключение</button>}</div>}
+        {(visibleChatError || apiError) && <div className="chat-error" role="alert">{visibleChatError || apiError}{apiError && <button className="text-button" onClick={() => setConfigRetry(value => value + 1)}>Повторить подключение</button>}</div>}
 
         <div className="chat-footer">
           <button
             className="chat-clear"
             type="button"
-            onClick={() => { summaryRequestedRef.current = false; setChatHistory([]); setChatError(null) }}
+            onClick={clearChat}
           >
             Хотите начать заново? <span>Очистить чат</span>
           </button>
@@ -628,15 +656,15 @@ export default function App() {
               type="text"
               value={questionInput}
               onChange={(event) => setQuestionInput(event.target.value)}
-              placeholder={apiBase ? 'Введите сообщение' : 'API не настроен'}
-              disabled={!apiBase || isLoading}
+              placeholder={!assistantSupported ? 'Контекст не подключён' : apiBase ? 'Введите сообщение' : 'API не настроен'}
+              disabled={!apiBase || !assistantSupported || !currentChat || chatLoading}
               aria-label="Вопрос ассистенту"
               maxLength={4000}
             />
             <button
               className="chat-submit"
               type="submit"
-              disabled={!apiBase || isLoading || questionInput.trim().length === 0}
+              disabled={!apiBase || !assistantSupported || !currentChat || chatLoading || questionInput.trim().length === 0}
               aria-label="Отправить вопрос"
             >
               <ArrowUp size={18} />

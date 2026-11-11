@@ -2,10 +2,11 @@
 
 import csv
 import json
+import os
 import unittest
-from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from ml.hypotheses import (
     FLEET_PATH,
@@ -17,6 +18,7 @@ from ml.hypotheses import (
     turnaround_grid,
     weather_by_month,
 )
+from pipeline.common import digest, write_json
 
 
 def _write(path: Path, rows: list[dict]) -> None:
@@ -136,6 +138,56 @@ class PanelTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
+    def _research(self, root, version, error):
+        directory = root / "reports/generated/ml-line-research" / version
+        metrics = {strategy: {direction: {"holdout": {"MAE": error if strategy == "directional" else 20}}
+                             for direction in ("inbound", "outbound")}
+                   for strategy in ("directional", "aggregate")}
+        write_json(directory / "metrics.json", {"data_version": "test", "metrics": {"2015": metrics}})
+        write_json(directory / "run_manifest.json", {"report_version": version, "data_version": "test", "outputs": {
+            "metrics.json": digest((directory / "metrics.json").read_bytes())}})
+        write_json(directory.parent / "latest.json", {"report_version": version,
+            "report_path": (directory / "report.html").relative_to(root).as_posix()})
+        return directory
+
+    def test_selected_research_changes_version_and_preserves_previous_result(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._bundle(root)
+            without = run_hypotheses(root)
+            self.assertIsNone(json.loads((without["output_dir"] / "run_manifest.json").read_text())["line_research"])
+            first_source = self._research(root, "research-a", 10)
+            first = run_hypotheses(root)
+            old_bytes = (first["output_dir"] / "hypothesis_results.csv").read_bytes()
+            self.assertNotEqual(first["version"], without["version"])
+            second_source = self._research(root, "research-b", 15)
+            os.utime(first_source / "metrics.json", (2_000_000_000, 2_000_000_000))
+            second = run_hypotheses(root)
+            self.assertNotEqual(first["version"], second["version"])
+            self.assertNotEqual(old_bytes, (second["output_dir"] / "hypothesis_results.csv").read_bytes())
+            self.assertEqual(old_bytes, (first["output_dir"] / "hypothesis_results.csv").read_bytes())
+            manifest = json.loads((second["output_dir"] / "run_manifest.json").read_text())
+            self.assertEqual(manifest["line_research"]["report_version"], "research-b")
+            self.assertEqual(manifest["line_research"]["metrics_sha256"], digest((second_source / "metrics.json").read_bytes()))
+            self.assertEqual(manifest["fingerprint"]["line_research"], manifest["line_research"])
+            os.utime(second_source / "metrics.json", (1_000_000_000, 1_000_000_000))
+            self.assertEqual(run_hypotheses(root)["version"], second["version"])
+            self._research(root, "research-b", 17)
+            self.assertNotEqual(run_hypotheses(root)["version"], second["version"])
+
+    def test_corrupt_or_escaping_research_pointer_is_rejected(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._bundle(root)
+            directory = self._research(root, "research-a", 10)
+            (directory / "metrics.json").write_text("{}")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                run_hypotheses(root)
+            self.assertFalse((root / "reports/generated/ml-hypotheses").exists())
+            write_json(directory.parent / "latest.json", {"report_version": "research-a", "report_path": "../outside/report.html"})
+            with self.assertRaisesRegex(ValueError, "выходит"):
+                run_hypotheses(root)
+
     def _bundle(self, root: Path) -> None:
         processed = root / "data/processed"
         fleet = load_fleet()

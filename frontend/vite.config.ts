@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { buildInfo } from './build-info'
+import { legacyRedirect } from './src/legacy-redirect'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), 'BB_')
@@ -17,13 +18,9 @@ export default defineConfig(({ mode }) => {
         name: 'flocast-legacy-ui-redirects',
         configureServer(server) {
           server.middlewares.use((request, response, next) => {
-            const original = (request.url || '').split('?')[0]
-            const pathname = original.replace(/^\/dashboard(?=\/|$)/, '') || '/'
-            if (['/capacity', '/capacity/', '/capacity.html', '/frontend/capacity.html'].includes(pathname)) {
-              response.writeHead(307, { Location: '/#capacity' })
-              response.end()
-            } else if (pathname !== original) {
-              response.writeHead(307, { Location: pathname === '/index.html' ? '/' : pathname })
+            const location = legacyRedirect(request.url || '')
+            if (location !== null) {
+              response.writeHead(307, { Location: location })
               response.end()
             } else next()
           })

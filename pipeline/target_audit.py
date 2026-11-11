@@ -154,7 +154,8 @@ def prepare_target_audit(root: Path, version: str, candidate: list[dict], contex
     coverage = corridor_coverage(candidate, version)
     sources = {a["source_id"]: a for a in artifacts}
     source = sources[candidate[0]["source_id"]] if candidate else None
-    differences = [r for r in reconciliation if Decimal(r["difference_tonnes"]) != 0]
+    differences = [r for r in reconciliation if r["check_status"] == "mismatch"]
+    incomplete = [r["period"] for r in reconciliation if r["check_status"] == "incomplete"]
     quality = {"data_version": version, "target_selection": "pending", "human_review": review,
                "registered_files": len(artifacts) + len(unavailable), "available_original_files": len(artifacts),
                "unique_available_sha256": len({a["sha256"] for a in artifacts}), "unavailable_files": len(unavailable),
@@ -164,6 +165,7 @@ def prepare_target_audit(root: Path, version: str, candidate: list[dict], contex
                "candidate_years_per_direction": {d: len({r["period"] for r in candidate if r["direction"] == d})
                                                   for d in ("inbound", "outbound")},
                "source_cells_checked": len(checks), "duplicates": 0, "line_terminal_mismatch_years": [r["period"] for r in differences],
+               "line_terminal_incomplete_years": incomplete,
                "corridor_matrix_cells": len(coverage), "corridor_matrix_unconfirmed": sum(r["non_missing"] == 0 for r in coverage),
                "independent_human_rebuild": "pending", "mass_definition": "unknown", "tare_included": None,
                "operator_coverage": "unknown", "year_comparability": "not_confirmed"}
@@ -252,8 +254,9 @@ def prepare_target_audit(root: Path, version: str, candidate: list[dict], contex
         f"Техническая сверка: {len(checks)}/{len(candidate)}; повторных ключей 0 (сборка отклоняет повторы), пропуски цели: {len(candidate)-quality['candidate_non_missing']}. "
         "Пустое не равно нулю; прочерки в контексте сохранены; год не распределён по месяцам. Ни число вагонов, ни масса региональной статистики не присвоены целевым тоннам.", "",
         "## Линия и терминал", "", "Разность = каботаж ЖДПК − (выгружено + погружено линии). Все числа сохранены как опубликованы.", "",
-        "| Год | Линия, сумма, т | Каботаж терминала, т | Разность, т |", "|---|---:|---:|---:|"]
-    quality_lines += [f"| {r['period']} | {r['line_sum_tonnes']} | {r['terminal_cabotage_tonnes']} | {r['difference_tonnes']} |" for r in reconciliation]
+        "| Год | Линия, сумма, т | Каботаж терминала, т | Разность, т | Статус |", "|---|---:|---:|---:|---|"]
+    quality_lines += [f"| {r['period']} | {r['line_sum_tonnes'] or 'нет данных'} | {r['terminal_cabotage_tonnes'] or 'нет данных'} | {r['difference_tonnes'] or 'нет данных'} | {r['check_status']} |" for r in reconciliation]
+    quality_lines += ["", "Неполные сверки: " + (", ".join(incomplete) or "нет") + "."]
     quality_lines += ["", "Особенно 2016 и 2023: разности велики, но это не основание исправить источник. Равенство разных объектов учёта не предполагается; причина неизвестна.",
         "`terminal-component-check.csv` проверяет отдельно ВСЕГО − каботаж − экспорт − импорт, только когда все четыре опубликованы. "
         "Малые остатки также не исправляются. Прочерк экспорта/импорта не принимается за ноль.",

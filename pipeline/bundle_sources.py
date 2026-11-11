@@ -55,7 +55,8 @@ def snapshot_parts(root, processed, raw=None):
     upstream = json.loads(found[upstream_path].read_text(encoding="utf-8"))
     for relative, expected in upstream["outputs"].items():
         if relative.startswith("data/processed/") and (
-                relative not in found or file_sha(found[relative]) != expected):
+                relative not in found or not found[relative].is_relative_to(processed)
+                or file_sha(found[relative]) != expected):
             raise ValueError("Нет обязательной таблицы или её хеш неверен: " + relative)
     for relative, source in found.items():
         if relative.startswith("data/raw/"):

@@ -24,6 +24,11 @@ export const forecastSchema = z.object({
 }).refine(data => data.predictions.every((p, index) => p.period === String(2024 + index) && p.horizon_years === index + 1))
 export type Forecast = z.infer<typeof forecastSchema>
 
+export const assistantResponseSchema = z.object({
+  answer: z.string().trim().min(1), result_type: z.literal('interpretation'), context: forecastSchema,
+})
+export type AssistantResponse = z.infer<typeof assistantResponseSchema>
+
 export const scenarioSchema = z.array(z.object({
   id: z.string(), label: z.string().nullable(), name: z.string(), mechanism: z.string(),
   calculation_status: z.string(), limitation: z.string(),

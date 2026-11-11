@@ -2,7 +2,9 @@
 
 from typing import Protocol
 
-from backend.domain.llm import DEFAULT_SUMMARY_QUESTION, SYSTEM_PROMPT, build_context
+from backend.domain.llm import DEFAULT_SUMMARY_QUESTION, SYSTEM_PROMPT, build_forecast_context
+from backend.schemas.forecast import ForecastResponse
+from backend.schemas.llm import AnswerResponse, AssistantSelection
 
 
 class LLMValidationError(ValueError):
@@ -10,7 +12,15 @@ class LLMValidationError(ValueError):
 
 
 class LLMDataNotFoundError(Exception):
-    """No analysis context files are available."""
+    """No verified forecast is available."""
+
+
+class LLMContextNotAvailableError(Exception):
+    """The requested slice is not connected."""
+
+
+class LLMContextInvalidError(Exception):
+    """The forecast artifact could not be validated."""
 
 
 class LLMNotConfiguredError(Exception):
@@ -29,16 +39,10 @@ class LLMGateway(Protocol):
         ...
 
 
-class AnalysisDataRepository(Protocol):
-    """Outbound port to analytical JSON context."""
+class ForecastRepository(Protocol):
+    """Outbound port to the existing validated annual forecast."""
 
-    def load(self) -> dict[str, dict]:
-        """Load available analysis files.
-
-        Returns a mapping {file_stem: content_or_error_marker}. Broken files
-        must be represented with a ``__error__`` key, not raised.
-        """
-        ...
+    def get(self, direction: str, end_year: int) -> ForecastResponse: ...
 
 
 class AskTransportAssistant:
@@ -46,31 +50,47 @@ class AskTransportAssistant:
 
     def __init__(
         self,
-        data_repository: AnalysisDataRepository,
+        data_repository: ForecastRepository,
         llm_gateway: LLMGateway,
     ) -> None:
         self._data_repository = data_repository
         self._llm_gateway = llm_gateway
 
-    async def summary(self) -> str:
+    async def summary(self, selection: AssistantSelection | None = None) -> AnswerResponse:
         """Generate the automatic summary for available data."""
-        return await self._ask(DEFAULT_SUMMARY_QUESTION)
+        return await self._ask(DEFAULT_SUMMARY_QUESTION, selection or AssistantSelection())
 
-    async def ask(self, question: str) -> str:
+    async def ask(self, question: str, selection: AssistantSelection | None = None) -> AnswerResponse:
         """Answer a user question about available analytical data."""
         cleaned = question.strip()
         if not cleaned:
             raise LLMValidationError("Пустой вопрос.")
         if len(cleaned) > 4000:
             raise LLMValidationError("Вопрос не может быть длиннее 4000 символов.")
-        return await self._ask(cleaned)
+        return await self._ask(cleaned, selection or AssistantSelection())
 
-    async def _ask(self, question: str) -> str:
-        files = self._data_repository.load()
-        if not files:
-            raise LLMDataNotFoundError("Нет данных для анализа.")
-        context = build_context(files)
-        return await self._llm_gateway.ask(context, question)
+    async def _ask(self, question: str, selection: AssistantSelection) -> AnswerResponse:
+        if (selection.region, selection.mode, selection.study_city, selection.other_region, selection.other_city) != (
+            "kaliningrad",
+            "sea",
+            "all",
+            "all",
+            "all",
+        ):
+            raise LLMContextNotAvailableError("Для выбранной географии, вида или детализации контекст не подключён.")
+        try:
+            forecast = self._data_repository.get(selection.direction, selection.end_year)
+            if forecast.direction != selection.direction or [p.period for p in forecast.predictions] != [
+                str(year) for year in range(2024, selection.end_year + 1)
+            ]:
+                raise ValueError("Контекст не соответствует запрошенному срезу")
+        except FileNotFoundError as exc:
+            raise LLMDataNotFoundError("Проверенная модель линии отсутствует. Подключите комплект models.") from exc
+        except (ValueError, OSError, KeyError, TypeError, ArithmeticError) as exc:
+            raise LLMContextInvalidError("Не удалось проверить модель и происхождение контекста ассистента.") from exc
+        context = build_forecast_context(forecast.model_dump(mode="json"))
+        answer = await self._llm_gateway.ask(context, question)
+        return AnswerResponse(answer=answer, context=forecast)
 
     @property
     def system_prompt(self) -> str:

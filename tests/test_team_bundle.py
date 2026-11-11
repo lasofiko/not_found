@@ -10,7 +10,7 @@ from zipfile import ZipFile
 
 from pipeline.build import build
 from pipeline.common import digest
-from pipeline.team_bundle import INDEX, import_archive, prepare, rebuild_processed
+from pipeline.team_bundle import INDEX, import_archive, prepare, rebuild_processed, verify_processed
 from pipeline.verify import verify
 from test_pipeline import make_registry
 
@@ -118,6 +118,80 @@ class BundleTests(unittest.TestCase):
             data['outputs']['data/processed/candidate_observations.csv'] = digest(candidate.read_bytes())
             (root / 'data/processed/build_manifest.json').write_text(json.dumps(data))
             self.assertTrue(any('значения' in e for e in verify(root)))
+
+    def test_missing_processed_outputs_fail_before_any_install(self):
+        for missing in ('data/processed/context_observations.csv', 'data/processed/target-quality.json'):
+            with self.subTest(missing=missing), TemporaryDirectory() as temp:
+                root = Path(temp)
+                make_registry(root)
+                previous = build(root)
+                before = {p: (root / p).read_bytes() for p in previous['outputs']}
+                manifest_bytes = (root / 'data/processed/build_manifest.json').read_bytes()
+                payloads = {p: (root / p).read_bytes() for p in previous['outputs']
+                            if p.startswith('data/processed/') and p != missing}
+                payloads['data/processed/build_manifest.json'] = manifest_bytes
+                archive = root / 'incomplete.zip'
+                bundle(archive, payloads)
+                raw_root = root / 'part2'
+                raw_file = raw_root / 'data/raw/extra/original.bin'
+                raw_file.parent.mkdir(parents=True)
+                raw_file.write_bytes(b'original')
+                # Допустимая отсутствующая raw-часть не должна устанавливаться до отказа.
+                with ZipFile(archive) as source:
+                    contents = {name: source.read(name) for name in source.namelist()}
+                index = json.loads(contents[INDEX])
+                index['files'].append({'path': 'data/raw/extra/original.bin', 'bytes': 8,
+                                       'sha256': digest(b'original')})
+                contents[INDEX] = json.dumps(index).encode()
+                with ZipFile(archive, 'w') as target:
+                    for name, payload in contents.items():
+                        target.writestr(name, payload)
+                with self.assertRaisesRegex(ValueError, 'Нет обязательного processed-выхода'):
+                    rebuild_processed(root, archive, raw_root=raw_root)
+                with self.assertRaisesRegex(ValueError, 'Нет обязательного processed-выхода'):
+                    import_archive(root, archive)
+                self.assertFalse((root / 'data/raw/extra/original.bin').exists())
+                self.assertFalse((root / 'data/raw/team_bundles').exists())
+                self.assertEqual((root / 'data/processed/build_manifest.json').read_bytes(), manifest_bytes)
+                self.assertEqual(before, {p: (root / p).read_bytes() for p in previous['outputs']})
+
+    def test_verification_rejects_missing_upstream_output_in_saved_zip(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            make_registry(root)
+            previous = build(root)
+            payloads = {p: (root / p).read_bytes() for p in previous['outputs'] if p.startswith('data/processed/')}
+            payloads['data/processed/build_manifest.json'] = (root / 'data/processed/build_manifest.json').read_bytes()
+            archive = root / 'processed.zip'
+            bundle(archive, payloads)
+            rebuild_processed(root, archive)
+            manifest = json.loads((root / 'data/processed/build_manifest.json').read_text())
+            saved = root / manifest['source_bundle']['local_path']
+            del payloads['data/processed/context_observations.csv']
+            bundle(saved, payloads)
+            manifest['source_bundle'].update(sha256=digest(saved.read_bytes()), bytes=saved.stat().st_size)
+            errors = verify_processed(root, manifest)
+            self.assertTrue(any('Нет обязательного processed-выхода' in e for e in errors), errors)
+
+    def test_replaced_output_hash_cannot_hide_tampered_non_csv(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            make_registry(root)
+            previous = build(root)
+            payloads = {p: (root / p).read_bytes() for p in previous['outputs'] if p.startswith('data/processed/')}
+            payloads['data/processed/build_manifest.json'] = (root / 'data/processed/build_manifest.json').read_bytes()
+            archive = root / 'processed.zip'
+            bundle(archive, payloads)
+            rebuild_processed(root, archive)
+            manifest_path = root / 'data/processed/build_manifest.json'
+            manifest = json.loads(manifest_path.read_text())
+            relative = 'data/processed/target-quality.json'
+            target = root / relative
+            target.write_text(json.dumps({'human_review': 'completed', 'candidate_non_missing': 999999}))
+            manifest['outputs'][relative] = digest(target.read_bytes())
+            manifest_path.write_text(json.dumps(manifest))
+            errors = verify(root)
+            self.assertTrue(any('Изменён неизменяемый файл' in e and relative in e for e in errors), errors)
 
 
 if __name__ == '__main__':

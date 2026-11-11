@@ -78,7 +78,8 @@ def parameters(html: str, source_id: str) -> list[dict]:
 
 def audit_report(version: str, artifacts: list[dict], candidate: list[dict], context: list[dict],
                  reconciliation: list[dict], failures: list[dict], catalog_count: int) -> str:
-    mismatches = [r for r in reconciliation if Decimal(r["difference_tonnes"]) != 0]
+    mismatches = [r for r in reconciliation if r["check_status"] == "mismatch"]
+    incomplete = [r["period"] for r in reconciliation if r["check_status"] == "incomplete"]
     rows = [
         "# Аудит данных для передачи команде",
         "",
@@ -115,6 +116,7 @@ def audit_report(version: str, artifacts: list[dict], candidate: list[dict], con
         "|---|---:|",
     ]
     rows.extend(f"| {r['period']} | {r['difference_tonnes']} |" for r in mismatches)
+    rows.extend(["", "Неполные сверки (нет данных для суммы или разности): " + (", ".join(incomplete) or "нет") + "."])
     rows.extend([
         "",
         "Значения оставлены как опубликованы. До признания ряда сопоставимым команда должна проверить причины расхождений, особенно изменение охвата в 2016 и 2023 годах. Никакие портовые итоги не подставлялись вместо строк линии.",
@@ -276,10 +278,18 @@ def build(root: Path, *, available_only: bool = False) -> dict:
     context.sort(key=lambda r: (r["series_id"], r["period"]))
     reconciliation = []
     for year in sorted({r["period"] for r in candidate}):
-        line_sum = sum(Decimal(r["value_tonnes"]) for r in candidate if r["period"] == year)
-        cabotage = next(Decimal(r["value_tonnes"]) for r in context if r["period"] == year and r["series_id"] == "terminal_cabotage")
-        reconciliation.append({"period": year, "line_sum_tonnes": str(line_sum),
-                               "terminal_cabotage_tonnes": str(cabotage), "difference_tonnes": str(cabotage - line_sum), "source_id": freight["source_id"]})
+        directions = [r for r in candidate if r["period"] == year]
+        complete = (len(directions) == 2 and {r["direction"] for r in directions} == {"inbound", "outbound"}
+                    and all(r["value_tonnes"] != "" for r in directions))
+        line_sum = str(sum(Decimal(r["value_tonnes"]) for r in directions)) if complete else ""
+        cabotage = next((r["value_tonnes"] for r in context
+                         if r["period"] == year and r["series_id"] == "terminal_cabotage"), "")
+        difference = str(Decimal(cabotage) - Decimal(line_sum)) if cabotage != "" and line_sum != "" else ""
+        reconciliation.append({"period": year, "line_sum_tonnes": line_sum,
+                               "terminal_cabotage_tonnes": cabotage, "difference_tonnes": difference,
+                               "check_status": "incomplete" if difference == "" else
+                                               "matched" if Decimal(difference) == 0 else "mismatch",
+                               "source_id": freight["source_id"]})
     catalog_path = root / "data/source_catalog.csv"
     if "hackathon_catalog" in latest:
         catalog_rows = catalog(verify_artifact(root, latest["hackathon_catalog"]).read_bytes())
@@ -299,7 +309,7 @@ def build(root: Path, *, available_only: bool = False) -> dict:
         "data/processed/factors.csv": (FACTOR_FIELDS, []),
         "data/processed/scenario_parameters.csv": (PARAMETER_FIELDS, parameters(text_source("rosmorport_freight"), freight["source_id"]) if freight else []),
         "data/processed/coverage.csv": (COVERAGE_FIELDS, make_coverage(candidate, context)),
-        "data/interim/reconciliation.csv": (["period", "line_sum_tonnes", "terminal_cabotage_tonnes", "difference_tonnes", "source_id"], reconciliation),
+        "data/interim/reconciliation.csv": (["period", "line_sum_tonnes", "terminal_cabotage_tonnes", "difference_tonnes", "source_id", "check_status"], reconciliation),
     }
     if "hackathon_catalog" in latest:
         outputs["data/source_catalog.csv"] = (list(catalog_rows[0]), catalog_rows)
@@ -321,7 +331,9 @@ def build(root: Path, *, available_only: bool = False) -> dict:
            "aggregation": "Нет агрегации перевозок; сумма направлений только для диагностической сверки с терминалом.",
            "imputation": "Не выполнялась", "target_selection": "pending",
            "warnings": ["Методология и охват кандидата требуют проверки человеком.", "Полной месячной матрицы не подтверждено.", "Неизвестные даты действия мощностей; факторы отсутствуют."],
-           "candidate_rows": len(candidate), "context_rows": len(context), "reconciliation_mismatches": sum(Decimal(r["difference_tonnes"]) != 0 for r in reconciliation)}
+           "candidate_rows": len(candidate), "context_rows": len(context),
+           "reconciliation_mismatches": sum(r["check_status"] == "mismatch" for r in reconciliation),
+           "reconciliation_incomplete": sum(r["check_status"] == "incomplete" for r in reconciliation)}
     log.update(build_scope=fingerprint["build_scope"], unavailable_source_ids=sorted(unavailable),
                catalog_status="original_available" if "hackathon_catalog" in latest else "catalog_original_unavailable",
                supplemental=supplemental_quality["rules"])

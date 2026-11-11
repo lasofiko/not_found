@@ -9,6 +9,8 @@ from starlette.exceptions import HTTPException
 
 from backend.schemas.common import ErrorBody, ErrorResponse
 from backend.use_cases.llm import (
+    LLMContextInvalidError,
+    LLMContextNotAvailableError,
     LLMDataNotFoundError,
     LLMNotConfiguredError,
     LLMUpstreamError,
@@ -47,6 +49,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(LLMDataNotFoundError)
     async def llm_data_not_found_error(_request: Request, exc: LLMDataNotFoundError) -> JSONResponse:
         return error_response(404, "LLM_DATA_NOT_FOUND", str(exc))
+
+    @app.exception_handler(LLMContextNotAvailableError)
+    async def llm_context_not_available_error(_request: Request, exc: LLMContextNotAvailableError) -> JSONResponse:
+        return error_response(404, "LLM_CONTEXT_NOT_AVAILABLE", str(exc))
+
+    @app.exception_handler(LLMContextInvalidError)
+    async def llm_context_invalid_error(_request: Request, exc: LLMContextInvalidError) -> JSONResponse:
+        return error_response(500, "LLM_CONTEXT_INVALID", str(exc))
 
     @app.exception_handler(LLMNotConfiguredError)
     async def llm_not_configured_error(_request: Request, exc: LLMNotConfiguredError) -> JSONResponse:

@@ -4,24 +4,26 @@ import csv
 import html
 import json
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
-from ml.experiment_io import fingerprint, saved_time, save_model, finish_manifest, page, table, number, image_tag
+from ml.blind_binding import selection_lock
+from ml.experiment_io import fingerprint, finish_manifest, image_tag, number, page, save_model, saved_time, table
 from ml.port_evaluation import BACKTEST_FIELDS, evaluate_port, load_port_protocol
-from ml.port_models import fit_port_model, bootstrap_predictions
+from ml.port_models import bootstrap_predictions, fit_port_model
 from ml.port_predict import PORT_WARNINGS, forecast_port
 from ml.run import library_versions
 from pipeline.common import ROOT, digest, write_csv, write_json
-from pipeline.model_inputs import month_index, month_period, _mass
-from pipeline.port_protocol import TARGETS, FIELDS, load_protocol_series as load_port_series
+from pipeline.model_inputs import _mass, month_index, month_period
+from pipeline.port_protocol import FIELDS, TARGETS
+from pipeline.port_protocol import load_protocol_series as load_port_series
 
 
-def blind_check(root, target_id, state, naive_state, rows, protocol):
+def blind_check(root, target_id, state, naive_state, rows, protocol, *, model_version, data_version, model_sha256):
     """Одно сравнение после выбора; значения не возвращаются в обучение."""
     from ml.port_models import forecast_values
-    lock = digest(json.dumps({"target": target_id, "state": state, "naive_state": naive_state,
-                "training_rows": rows, "protocol": protocol}, sort_keys=True).encode())
+    lock = selection_lock(target_id, state, naive_state, rows, protocol)
+    identity = {"model_version": model_version, "data_version": data_version, "model_sha256": model_sha256}
     destination = root / "reports/generated/ml-port/blind_checks" / (target_id + ".json")
     if destination.exists():
         saved = json.loads(destination.read_text(encoding="utf-8"))
@@ -29,11 +31,13 @@ def blind_check(root, target_id, state, naive_state, rows, protocol):
             raise ValueError("Слепая проверка уже просмотрена; изменение состояния/данных требует нового протокола")
         if saved.get("status") == "started":
             raise ValueError("Слепая проверка была начата, но не завершена; требуется разбор сбоя без нового выбора")
+        if any(saved.get(key) != value for key, value in identity.items()):
+            raise ValueError("Слепая проверка уже просмотрена другой версией модели; используйте замороженный запуск")
         return saved
     # Блокировка записывается до открытия фактов: авария не разрешает новый выбор.
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("x", encoding="utf-8") as stream:
-        json.dump({"selection_lock": lock, "status": "started"}, stream)
+        json.dump({"selection_lock": lock, "status": "started", "target_id": target_id, **identity}, stream)
     port, cargo = TARGETS[target_id]
     from pipeline.port_protocol import load_blind_cumulatives
     blind_rows, source_metadata = load_blind_cumulatives(root, target_id)
@@ -43,7 +47,7 @@ def blind_check(root, target_id, state, naive_state, rows, protocol):
             raise ValueError("Неоднозначный/несопоставимый слепой итог")
         selected[row["period"]] = row
     if set(selected) != {"2026-08", "2026-09"}:
-        result = {"selection_lock": lock, "status": "not_available", "target_id": target_id}
+        result = {"selection_lock": lock, "status": "not_available", "target_id": target_id, **identity}
         write_json(destination, result)
         return result
     august, september = selected["2026-08"], selected["2026-09"]
@@ -74,7 +78,7 @@ def blind_check(root, target_id, state, naive_state, rows, protocol):
                     and row["measurement_scope"] == "port_total"):
                 provided_matches.append(delta >= 0 and _mass(row["value"]) == delta
                     and row["previous_source_id"] == august["source_id"] and row["source_id"] == september["source_id"])
-    result = {"selection_lock": lock, "status": "completed", "target_id": target_id, "comparisons": comparisons,
+    result = {"selection_lock": lock, "status": "completed", "target_id": target_id, **identity, "comparisons": comparisons,
         "provided_september_difference_matches": provided_matches == [True] if provided_matches else None,
         **source_metadata, "selection_changed": False,
         "limitations": "Одно сравнение суммы и одного месяца, не независимая выборка; сентябрь уже был виден ранее."}
@@ -145,7 +149,7 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
         provenance["git_commit"], provenance["git_tracked_dirty"] = None, None
     libraries = library_versions()
     code = [Path(__file__), *[Path(__file__).with_name(p) for p in (
-        "port_models.py", "port_evaluation.py", "port_predict.py", "port_protocol.toml", "experiment_io.py", "models.py")],
+        "port_models.py", "port_evaluation.py", "port_predict.py", "port_protocol.toml", "experiment_io.py", "models.py", "blind_binding.py")],
         Path(__file__).parents[1] / "pipeline/port_protocol.py",
         Path(__file__).parents[1] / "pipeline/bundle_sources.py",
         Path(__file__).parents[1] / "docs/ml-port-evaluation-protocol.md"]
@@ -180,7 +184,8 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
         "forecast_origin": "2025-12", "training_start": rows[0]["period"], "training_data_available_by": available_by,
         "observations": len(known_rows), "selected_model": chosen, "selection_status": selection_status,
         "state": state, "metrics": metrics, "predictions": predictions, "warnings": warnings,
-        "provenance": provenance, "protocol": protocol, "fingerprint": inputs}
+        "provenance": provenance, "protocol": protocol, "fingerprint": inputs,
+        "selection_lock": selection_lock(target_id, state, naive, rows, protocol)}
     sha = save_model(model_path, artifact)
     response = forecast_port(end_period, root=root, model_path=model_path)
     write_csv(output / "training_series.csv", FIELDS, [{k: r.get(k, "") for k in FIELDS} for r in rows])
@@ -199,7 +204,8 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
           "experimental": r["experimental"], **{f"{side}_{level}": r["interval"][level][side]
           for level in ("80", "95") for side in ("lower", "upper")}} for r in response["predictions"]])
     if check_blind:
-        write_json(output / "blind_check.json", blind_check(root, target_id, state, naive, rows, protocol))
+        write_json(output / "blind_check.json", blind_check(root, target_id, state, naive, rows, protocol,
+                   model_version=model_version, data_version=provenance["data_version"], model_sha256=sha))
     card = (f"# {artifact['port']}: {artifact['cargo_group']}\n\n"
         f"Модель: {model_version}. Данные: {provenance['data_version']}.\n\n"
         f"Обучение: {rows[0]['period']} — 2025-12, {len(known_rows)} непустых месяцев. Статус цели estimated. "

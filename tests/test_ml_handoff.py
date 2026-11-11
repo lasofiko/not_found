@@ -36,8 +36,6 @@ class SnapshotTests(unittest.TestCase):
             repository = Path(__file__).resolve().parents[1]
             (root / "pipeline").mkdir()
             shutil.copyfile(repository / "pipeline/ml_handoff.py", root / "pipeline/ml_handoff.py")
-            (root / BUNDLE).mkdir(parents=True)
-            (root / BUNDLE / "README.md").write_text("Вымышленный комплект")
             for name in ("far_east", "kaliningrad_additional", ""):
                 path = root / "data/processed" / name
                 path.mkdir(parents=True, exist_ok=True)
@@ -56,6 +54,7 @@ class SnapshotTests(unittest.TestCase):
                 path.parent.mkdir(exist_ok=True)
                 path.write_text("Вымышленная инструкция")
             first = build(root, 100)
+            self.assertIn("human_review: pending", (root / BUNDLE / "README.md").read_text())
             self.assertEqual(first, build(root, 100))
             self.assertEqual(verify(root), [])
             archive = package(root)
@@ -84,6 +83,12 @@ class SnapshotTests(unittest.TestCase):
             fragment = first["datasets"][0]["fragments"][0]["path"]
             (root / BUNDLE / fragment).write_text("Повреждено")
             self.assertTrue(verify(root))
+
+            # Изменённая инструкция меняет версию передачи, даже если CSV прежние.
+            (root / "docs/contracts.md").write_text("Обновлённая инструкция")
+            second = build(root, 100)
+            self.assertNotEqual(first["bundle_version"], second["bundle_version"])
+            self.assertEqual(verify(root), [])
 
 
 if __name__ == "__main__":
