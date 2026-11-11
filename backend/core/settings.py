@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     log_level: str = "INFO"
+
+    # LLM provider settings are server-only and optional: the rest of the app
+    # starts and works even when no LLM is configured.
+    llm_base_url: str = ""
+    llm_api_key: SecretStr = SecretStr("")
+    llm_model: str = ""
+    llm_timeout_seconds: float = Field(default=60.0, ge=1.0)
 
     @field_validator("api_prefix")
     @classmethod
@@ -42,3 +49,7 @@ class Settings(BaseSettings):
         if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("Unsupported log level")
         return normalized
+
+    @property
+    def llm_configured(self) -> bool:
+        return bool(self.llm_base_url and self.llm_api_key.get_secret_value() and self.llm_model)
