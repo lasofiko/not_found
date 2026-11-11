@@ -1,10 +1,11 @@
+import type { CSSProperties } from 'react'
 import {
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   ComposedChart,
   LabelList,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -17,40 +18,51 @@ import type { selectDemoScenario } from './dashboard-data'
 type Forecast = ReturnType<typeof selectDemoScenario>
 
 const darkColors = {
-  teal: '#32AA9B',
-  violet: '#7967D5',
-  blue: '#6C91D4',
+  teal: '#52C5B9',
+  violet: '#A395F1',
+  blue: '#89A9E0',
 }
 
 const lightColors = {
-  teal: '#227B71',
-  violet: '#6D59C7',
+  teal: '#207D75',
+  violet: '#705FD0',
   blue: '#4C70B4',
 }
 
 const getColors = (light: boolean) => light ? lightColors : darkColors
 
-const getTooltipStyle = (light: boolean) => ({
+const getTooltipStyle = (light: boolean): CSSProperties => ({
   background: light ? '#FCFCFE' : '#1B1E32',
   border: light ? '1px solid #E3E4ED' : '1px solid #3A3F58',
   borderRadius: '12px',
   boxShadow: light ? '0 14px 35px rgba(37, 39, 66, 0.13)' : '0 14px 35px rgba(0, 0, 0, 0.35)',
   color: light ? '#22263A' : '#F0F0F7',
   fontSize: '12px',
+  padding: '12px 14px',
+  lineHeight: 1.6,
+  maxWidth: 'min(280px, calc(100vw - 64px))',
+  whiteSpace: 'normal',
 })
 
 const getAxisStyle = (light: boolean) => ({
   fill: light ? '#626A80' : '#A3A8BC',
   fontSize: 11,
-  fontFamily: 'Inter',
+  fontFamily: 'Inter, sans-serif',
 })
 
-function ChartLegend({ items }: { items: { name: string; color: string }[] }) {
+const axisFormatter = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 })
+const tooltipFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
+const formatAxisValue = (value: number) => axisFormatter.format(value)
+const formatTooltipValue = (value: unknown) => typeof value === 'number' ? tooltipFormatter.format(value) : String(value ?? '—')
+const chartMargin = { top: 12, right: 12, left: 0, bottom: 4 }
+const getBarCursor = (light: boolean) => ({ fill: light ? 'rgba(112, 95, 208, 0.05)' : 'rgba(163, 149, 241, 0.08)' })
+
+function ChartLegend({ items }: { items: { name: string; color: string; dashed?: boolean }[] }) {
   return (
     <div className="chart-legend" aria-label="Легенда графика">
       {items.map((item) => (
         <span key={item.name}>
-          <i className="legend-line" style={{ backgroundColor: item.color, color: item.color }} />
+          <i className={`legend-line${item.dashed ? ' is-dashed' : ''}`} style={{ backgroundColor: item.color, color: item.color }} />
           {item.name}
         </span>
       ))}
@@ -68,15 +80,15 @@ export function VolumeChart({ data, light = false }: { data: Forecast['stacked']
     <div className="chart-wrap">
       <div className="chart-canvas" role="img" aria-label="Столбчатый график объёма груза в 2025 и 2030 годах для моря, synthetic, тыс. т/сутки">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 4, left: -22, bottom: 0 }} barCategoryGap="38%">
+          <BarChart data={data} margin={chartMargin} barCategoryGap="38%">
             <defs>
-              <linearGradient id="seaPremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7764C4" /><stop offset="100%" stopColor="#6D59C7" /></linearGradient>
+              <linearGradient id="seaPremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={colors.violet} stopOpacity={0.8} /><stop offset="100%" stopColor={colors.violet} /></linearGradient>
             </defs>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="3 5" />
-            <XAxis dataKey="year" axisLine={false} tickLine={false} tick={axisStyle} dy={6} />
-            <YAxis axisLine={false} tickLine={false} tick={axisStyle} domain={[0, 'dataMax + 4']} />
-            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: light ? 'rgba(112, 95, 208, 0.035)' : 'rgba(163, 149, 241, 0.05)' }} formatter={(value) => [`${value} тыс. т/сутки`]} />
-            <Bar dataKey="Море" stackId="volume" fill="url(#seaPremium)" radius={[6, 6, 0, 0]} isAnimationActive={false}><LabelList dataKey="Море" position="center" fill="#FCFAFF" fontSize={11} fontWeight={600} /></Bar>
+            <XAxis dataKey="year" axisLine={false} tickLine={false} tick={axisStyle} tickMargin={10} height={32} />
+            <YAxis axisLine={false} tickLine={false} tick={axisStyle} width={42} tickCount={5} domain={[0, 'dataMax + 4']} />
+            <Tooltip contentStyle={tooltipStyle} cursor={getBarCursor(light)} formatter={(value) => [`${formatTooltipValue(value)} тыс. т/сутки`]} />
+            <Bar dataKey="Море" stackId="volume" fill="url(#seaPremium)" radius={[6, 6, 0, 0]} maxBarSize={64} isAnimationActive={false}><LabelList dataKey="Море" position="center" fill={light ? '#FCFCFF' : '#17132D'} fontSize={11} fontWeight={600} /></Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -95,11 +107,11 @@ export function DynamicsChart({ data, light = false }: { data: Forecast['dynamic
     <div className="chart-wrap">
       <div className="chart-canvas" role="img" aria-label="Линейный график динамики объёма груза с 2025 по 2030 год для трёх синтетических примеров, тыс. т/сутки">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 10, left: -22, bottom: 0 }}>
+          <LineChart data={data} margin={chartMargin}>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="3 5" />
-            <XAxis dataKey="year" axisLine={false} tickLine={false} tick={axisStyle} dy={6} />
-            <YAxis axisLine={false} tickLine={false} tick={axisStyle} domain={['dataMin - 1', 'dataMax + 1']} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [`${value} тыс. т/сутки`, name]} />
+            <XAxis dataKey="year" axisLine={false} tickLine={false} tick={axisStyle} tickMargin={10} height={32} minTickGap={14} />
+            <YAxis axisLine={false} tickLine={false} tick={axisStyle} width={42} tickCount={5} domain={['dataMin - 1', 'dataMax + 1']} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: gridColor, strokeDasharray: '3 5' }} formatter={(value, name) => [`${formatTooltipValue(value)} тыс. т/сутки`, name]} />
             <Line type="monotone" dataKey="Базовый" stroke={colors.teal} strokeWidth={2.2} dot={{ r: 3, fill: colors.teal, strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} />
             <Line type="monotone" dataKey="А. Мощность" stroke={colors.blue} strokeWidth={2.1} dot={{ r: 2.5, fill: colors.blue, strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} />
             <Line type="monotone" dataKey="Б. Новый маршрут" stroke={colors.violet} strokeWidth={2.2} dot={{ r: 2.5, fill: colors.violet, strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} />
@@ -133,10 +145,11 @@ export function HypothesisChart({ data, timeUnit, light = false }: { data: Forec
 
   return (
     <div className="chart-wrap comparison-chart-wrap">
+      <div className="chart-axis-labels"><span>Объём · тыс. т/сутки</span><span>Время · {timeUnit}</span></div>
       <div className="chart-canvas comparison-canvas" role="img" aria-label={`Сравнение трёх гипотез по объёму груза и времени доставки в ${timeUnit}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: 0, left: 0, bottom: 0 }} barCategoryGap="30%">
-            <defs><linearGradient id="comparePremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={light ? '#2B8C80' : '#55C2B2'} /><stop offset="100%" stopColor={light ? colors.teal : '#328F9B'} /></linearGradient></defs>
+          <ComposedChart data={data} margin={{ top: 12, right: 0, left: 0, bottom: 4 }} barCategoryGap="30%">
+            <defs><linearGradient id="comparePremium" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={colors.teal} stopOpacity={0.8} /><stop offset="100%" stopColor={colors.teal} /></linearGradient></defs>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="3 5" />
             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={<HypothesisTick light={light} />} height={38} interval={0} />
             <YAxis
@@ -145,7 +158,7 @@ export function HypothesisChart({ data, timeUnit, light = false }: { data: Forec
               tickLine={false}
               tick={axisStyle}
               width={40}
-              label={{ value: 'тыс. т/сутки', angle: -90, position: 'insideLeft', offset: 0, fill: axisStyle.fill, fontSize: 10, style: { textAnchor: 'middle' } }}
+              tickCount={5}
             />
             <YAxis
               yAxisId="time"
@@ -153,11 +166,10 @@ export function HypothesisChart({ data, timeUnit, light = false }: { data: Forec
               axisLine={false}
               tickLine={false}
               tick={axisStyle}
-              width={30}
-              label={{ value: timeUnit, angle: 90, position: 'insideRight', offset: 0, fill: axisStyle.fill, fontSize: 10, style: { textAnchor: 'middle' } }}
+              width={36}
+              tickCount={5}
             />
-            <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => name === 'Объём' ? [`${value} тыс. т/сутки`, name] : [`${value} ${timeUnit}`, name]} />
-            <Legend content={() => null} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ stroke: gridColor, strokeDasharray: '3 5' }} formatter={(value, name) => name === 'Объём' ? [`${formatTooltipValue(value)} тыс. т/сутки`, name] : [`${formatTooltipValue(value)} ${timeUnit}`, name]} />
             <Bar yAxisId="volume" name="Объём" dataKey="volume" fill="url(#comparePremium)" radius={[6, 6, 0, 0]} maxBarSize={42} isAnimationActive={false} />
             <Line yAxisId="time" name="Время" type="monotone" dataKey="time" stroke={colors.violet} strokeWidth={2.3} dot={{ r: 4, fill: light ? '#FCFCFE' : '#15182A', stroke: colors.violet, strokeWidth: 2 }} isAnimationActive={false} />
           </ComposedChart>
@@ -182,12 +194,12 @@ export function ForecastVolumeChart({ result, light = false }: MlChartProps) {
   return <div className="chart-wrap">
     <div className="chart-canvas" role="img" aria-label="Прогноз перевезённой массы, тонн за год">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={result.predictions}>
+        <BarChart data={result.predictions} margin={chartMargin}>
           <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" vertical={false} />
-          <XAxis dataKey="period" tick={getAxisStyle(light)} />
-          <YAxis width={75} tick={getAxisStyle(light)} />
-          <Tooltip contentStyle={getTooltipStyle(light)} formatter={value => [Number(value).toLocaleString('ru-RU'), 'т/год']} />
-          <Bar name="Прогноз, т/год" dataKey="value" fill={colors.violet} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+          <XAxis dataKey="period" axisLine={false} tickLine={false} tick={getAxisStyle(light)} tickMargin={10} height={32} minTickGap={14} />
+          <YAxis width={52} tick={getAxisStyle(light)} axisLine={false} tickLine={false} tickFormatter={formatAxisValue} tickCount={5} />
+          <Tooltip contentStyle={getTooltipStyle(light)} cursor={getBarCursor(light)} formatter={value => [`${formatTooltipValue(value)} т/год`, 'Прогноз']} />
+          <Bar name="Прогноз, т/год" dataKey="value" fill={colors.violet} radius={[6, 6, 0, 0]} maxBarSize={44} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -207,18 +219,18 @@ export function ForecastDynamicsChart({ result, light = false }: MlChartProps) {
   return <div className="chart-wrap">
     <div className="chart-canvas" role="img" aria-label="Динамика прогноза с условными границами 95 процентов">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows}>
+        <LineChart data={rows} margin={chartMargin}>
           <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" vertical={false} />
-          <XAxis dataKey="period" tick={getAxisStyle(light)} />
-          <YAxis width={75} tick={getAxisStyle(light)} />
-          <Tooltip contentStyle={getTooltipStyle(light)} formatter={value => [Number(value).toLocaleString('ru-RU'), 'т/год']} />
-          <Line name="Прогноз" dataKey="forecast" stroke={colors.violet} isAnimationActive={false} />
-          <Line name="Нижняя 95%" dataKey="lower" stroke={colors.teal} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-          <Line name="Верхняя 95%" dataKey="upper" stroke={colors.blue} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+          <XAxis dataKey="period" axisLine={false} tickLine={false} tick={getAxisStyle(light)} tickMargin={10} height={32} minTickGap={14} />
+          <YAxis width={52} tick={getAxisStyle(light)} axisLine={false} tickLine={false} tickFormatter={formatAxisValue} tickCount={5} />
+          <Tooltip contentStyle={getTooltipStyle(light)} cursor={{ stroke: light ? '#E3E4ED' : '#3A3F58', strokeDasharray: '3 5' }} formatter={(value, name) => [`${formatTooltipValue(value)} т/год`, name]} />
+          <Line name="Прогноз" dataKey="forecast" stroke={colors.violet} strokeWidth={2.3} dot={{ r: 3, fill: colors.violet, strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+          <Line name="Нижняя 95%" dataKey="lower" stroke={colors.teal} strokeWidth={1.8} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+          <Line name="Верхняя 95%" dataKey="upper" stroke={colors.blue} strokeWidth={1.8} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
-    <ChartLegend items={[{ name: 'Прогноз · т/год', color: colors.violet }, { name: 'Нижняя 95%', color: colors.teal }, { name: 'Верхняя 95%', color: colors.blue }]} />
+    <ChartLegend items={[{ name: 'Прогноз · т/год', color: colors.violet }, { name: 'Нижняя 95%', color: colors.teal, dashed: true }, { name: 'Верхняя 95%', color: colors.blue, dashed: true }]} />
   </div>
 }
 
@@ -230,17 +242,19 @@ export function ModelQualityChart({ result, light = false }: MlChartProps) {
     { name: 'naive baseline', MAE: result.metrics.baseline.holdout.MAE },
   ]
   return <div className="chart-wrap">
-    <div className="chart-canvas" role="img" aria-label="MAE выбранного метода и baseline на проверке 2022–2023">
+    <div className="chart-canvas quality-canvas" role="img" aria-label="MAE выбранного метода и baseline на проверке 2022–2023">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows}>
-          <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" vertical={false} />
-          <XAxis dataKey="name" tick={getAxisStyle(light)} />
-          <YAxis width={75} tick={getAxisStyle(light)} />
-          <Tooltip contentStyle={getTooltipStyle(light)} formatter={value => [Number(value).toLocaleString('ru-RU'), 'MAE, т']} />
-          <Bar name="MAE, т" dataKey="MAE" fill={colors.teal} isAnimationActive={false} />
+        <BarChart data={rows} layout="vertical" margin={chartMargin}>
+          <CartesianGrid stroke={light ? '#E8E8F0' : '#292D43'} strokeDasharray="3 5" horizontal={false} />
+          <XAxis type="number" tick={getAxisStyle(light)} axisLine={false} tickLine={false} tickFormatter={formatAxisValue} tickMargin={10} height={32} minTickGap={20} />
+          <YAxis type="category" dataKey="name" width={104} tick={{ ...getAxisStyle(light), fontSize: 10 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={getTooltipStyle(light)} cursor={getBarCursor(light)} formatter={value => [`${formatTooltipValue(value)} т`, 'MAE']} />
+          <Bar name="MAE, т" dataKey="MAE" radius={[0, 6, 6, 0]} maxBarSize={30} isAnimationActive={false}>
+            {rows.map((row, index) => <Cell key={`${index}-${row.name}`} fill={index === 0 ? colors.violet : colors.teal} />)}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
-    <ChartLegend items={[{ name: 'MAE · т · горизонт проверки один год', color: colors.teal }]} />
+    <ChartLegend items={[{ name: 'Выбранный метод · MAE, т', color: colors.violet }, { name: 'Naive baseline · MAE, т', color: colors.teal }]} />
   </div>
 }
