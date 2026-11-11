@@ -1,6 +1,7 @@
 """Validated environment settings."""
 
 from enum import StrEnum
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,7 +27,27 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_api_key: SecretStr = SecretStr("")
     llm_model: str = ""
-    llm_timeout_seconds: float = Field(default=60.0, ge=1.0)
+    llm_timeout_seconds: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def validate_llm_base_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            return value
+        url = urlsplit(value)
+        # Accessing port also validates malformed/non-numeric port numbers.
+        _ = url.port
+        if (
+            url.scheme not in {"http", "https"}
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.query
+            or url.fragment
+        ):
+            raise ValueError("BB_LLM_BASE_URL: нужна HTTP(S) база API без credentials, query и fragment")
+        return value
 
     @field_validator("api_prefix")
     @classmethod

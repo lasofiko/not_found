@@ -1,5 +1,24 @@
 # Текущая архитектура
 
+## Инфраструктура запуска
+
+`Dockerfile`: Node 24.14.0 (`npm ci`, TypeScript + Vite) → Python 3.11
+(`uv sync --locked`, только серверные зависимости). В runtime нет Node, npm,
+pytest, исходных выгрузок и ключей. Исходники React сохраняются для проверки
+build-info; `dist` берётся из стадии сборки. Процесс UID/GID 10001.
+
+`compose.yaml` содержит один сервис `app`: браузер → `127.0.0.1:8000` →
+FastAPI (`backend.app:app`) → проверенный JSON в `/app/models`; при настроенном
+LLM сервер обращается к внешнему Chat Completions API. React получает относительный
+API-префикс через `/config.json`; Docker hostname браузеру не передаётся.
+Том моделей и корневая ФС доступны только для чтения, `/tmp` — tmpfs.
+ETL и обучение выполняются отдельно, в этот контейнер не вынесены.
+
+Vite dev на 5173 проксирует API к 8000 через `BB_DEV_BACKEND_URL`.
+Streamlit, Steam, Nginx, БД, Redis, отдельный ML-worker и CD в коде не обнаружены.
+GitHub Actions проверяет lock, backend, React, HTTP smoke и контейнер с двумя
+API-префиксами; публикация и развёртывание не выполняются.
+
 Единственный основной интерфейс — существующий React FloCast с контейнеровозом,
 светлой темой по умолчанию, Sidebar, показателями, транспортом, картой и AI-панелью.
 Точка входа frontend/index.html → src/main.tsx → App.tsx. Палитра, App.css,

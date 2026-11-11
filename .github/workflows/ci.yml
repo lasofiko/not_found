@@ -1,0 +1,115 @@
+name: CI
+on:
+  push:
+    branches: [main, devops, 'integration/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  BB_ENVIRONMENT: test
+  PYTHONDONTWRITEBYTECODE: '1'
+jobs:
+  checks:
+    name: Python, React и API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.13.7'
+          python-version: '3.11'
+          enable-cache: true
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24.14.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Установить Python из lock-файла
+        run: uv sync --locked --extra dev --extra data --extra ml
+      - name: Установить frontend из lock-файла
+        run: npm --prefix frontend ci --no-audit --no-fund
+      - name: Линтинг backend
+        run: |
+          uv run --locked --no-sync ruff check backend scripts/smoke.py
+          uv run --locked --no-sync ruff format --check backend scripts/smoke.py
+      - name: React lint, tests, typecheck и production build
+        run: |
+          npm --prefix frontend run lint
+          npm --prefix frontend test
+          npm --prefix frontend run build
+      - name: Импорты и полный набор тестов
+        run: |
+          uv run --locked --no-sync python -c "import backend.app, ml.predict, ml.port_predict, pipeline.validate"
+          uv run --locked --no-sync pytest -q --junitxml=reports/ci/pytest.xml
+      - name: Smoke на реальном HTTP-сервере без внешних секретов
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/ci
+          uv run --locked --no-sync uvicorn backend.app:app --host 127.0.0.1 --port 8000 >reports/ci/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/api/v1/health >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          uv run --locked --no-sync python scripts/smoke.py --expect-no-model --expect-llm-disabled
+      - name: Сохранить диагностику
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: checks
+          path: reports/ci/
+          retention-days: 7
+          if-no-files-found: error
+  container:
+    name: Compose (${{ matrix.prefix }})
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        prefix: [/api/v1, /ci/v2]
+    env:
+      BB_API_PREFIX: ${{ matrix.prefix }}
+      BB_LLM_BASE_URL: ''
+      BB_LLM_API_KEY: ''
+      BB_LLM_MODEL: ''
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Проверить Compose и собрать приложение
+        run: |
+          docker compose config --quiet
+          docker compose build --pull
+      - name: Запустить и дождаться healthcheck
+        run: docker compose up --detach --wait --wait-timeout 120
+      - name: Проверить UI, API, отсутствие модели/LLM и права
+        run: |
+          python3 scripts/smoke.py --expect-no-model --expect-llm-disabled
+          docker compose exec -T app python -c "import os, importlib.util; from pathlib import Path; assert os.geteuid() == 10001; assert importlib.util.find_spec('pytest') is None; assert not Path('backend/tests').exists(); assert not Path('frontend/node_modules').exists(); assert not Path('.env').exists()"
+      - name: Проверить SIGTERM
+        run: |
+          docker compose stop --timeout 15
+          exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$(docker compose ps --all --quiet app)")
+          case "$exit_code" in 0|143) ;; *) exit 1 ;; esac
+      - name: Состояние и журналы
+        if: always()
+        run: |
+          docker compose ps --all
+          docker compose logs --no-color
+      - name: Остановить проверочное окружение
+        if: always()
+        run: docker compose down --remove-orphans

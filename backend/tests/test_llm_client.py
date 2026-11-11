@@ -122,3 +122,32 @@ def test_client_rejects_unconfigured() -> None:
     )
     with pytest.raises(LLMClientError, match="не настроен"):
         _run(client.ask("context", "question"))
+
+
+@pytest.mark.parametrize(
+    "status, hint",
+    [(400, "совместимость"), (404, "BB_LLM_BASE_URL"), (401, "API-ключ"), (403, "права"), (429, "лимит")],
+)
+def test_provider_diagnostics_hide_response_secrets(status: int, hint: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://llm.test/chat/completions"
+        return httpx.Response(status, text="private-provider-body-secret")
+
+    async def action(_http: httpx.AsyncClient, client: OpenAILLMClient) -> None:
+        with pytest.raises(LLMClientError, match=hint) as error:
+            await client.ask("context", "question")
+        assert "private-provider-body" not in str(error.value)
+
+    _run(_with_mock(handler, action))
+
+
+def test_network_error_hides_request_details() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("secret-key-in-network-exception", request=request)
+
+    async def action(_http: httpx.AsyncClient, client: OpenAILLMClient) -> None:
+        with pytest.raises(LLMClientError, match="Сетевая ошибка") as error:
+            await client.ask("context", "question")
+        assert "secret-key" not in str(error.value)
+
+    _run(_with_mock(handler, action))

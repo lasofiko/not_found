@@ -52,10 +52,17 @@ class OpenAILLMClient:
             except httpx.TimeoutException as exc:
                 raise LLMClientError("Таймаут при обращении к модели") from exc
             except httpx.HTTPError as exc:
-                raise LLMClientError(f"Сетевая ошибка: {exc}") from exc
+                raise LLMClientError("Сетевая ошибка: проверьте доступ к провайдеру, DNS, TLS и proxy сервера") from exc
 
             if response.status_code != 200:
-                raise LLMClientError(f"Ошибка модели: HTTP {response.status_code}")
+                hint = {
+                    400: "проверьте идентификатор модели, права доступа и совместимость Chat Completions",
+                    401: "проверьте API-ключ провайдера",
+                    403: "проверьте права ключа и доступ к модели",
+                    404: "проверьте BB_LLM_BASE_URL и BB_LLM_MODEL; клиент добавляет /chat/completions",
+                    429: "превышен лимит запросов или квота провайдера",
+                }.get(response.status_code, "провайдер временно недоступен или вернул ошибку")
+                raise LLMClientError(f"Ошибка модели: HTTP {response.status_code}; {hint}")
 
             try:
                 data = response.json()
