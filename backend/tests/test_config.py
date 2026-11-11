@@ -30,8 +30,19 @@ def test_config(client: TestClient) -> None:
         {"cors_origins": ["*"]},
         {"log_level": "VERBOSE"},
         {"environment": "unknown"},
+        {"llm_base_url": "ftp://provider.test/v1"},
+        {"llm_base_url": "https://provider.test:invalid/v1"},
+        {"llm_base_url": "https://key@provider.test/v1"},
+        {"llm_base_url": "https://provider.test/v1?api_key=secret"},
+        {"llm_base_url": "https://provider.test/v1#fragment"},
+        {"llm_timeout_seconds": float("inf")},
     ],
 )
 def test_invalid_settings_fail_at_startup(override: dict) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **override)
+
+
+def test_llm_base_url_normalization() -> None:
+    config = Settings(_env_file=None, llm_base_url=" https://provider.test/v1/ ")
+    assert config.llm_base_url == "https://provider.test/v1"

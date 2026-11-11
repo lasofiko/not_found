@@ -1,0 +1,29 @@
+name: flocast
+services:
+  app:
+    image: flocast:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${BB_HTTP_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BB_ENVIRONMENT: ${BB_ENVIRONMENT:-production}
+      BB_API_PREFIX: ${BB_API_PREFIX:-/api/v1}
+    volumes:
+      - type: bind
+        source: ${BB_MODELS_PATH:-./models}
+        target: /app/models
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 15s

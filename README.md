@@ -1,5 +1,48 @@
 # FloCast
 
+## Контейнерный запуск и интеграция main/devops
+
+Из корня репозитория, с Docker Desktop в режиме Linux containers (Compose 2.24+):
+
+```powershell
+if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
+docker compose up --build
+```
+
+Сайт: **http://127.0.0.1:8000/**, Swagger: **http://127.0.0.1:8000/docs**.
+Один контейнер собирает утверждённый React и запускает FastAPI, который отдаёт
+тот же интерфейс. Модели подключаются из `BB_MODELS_PATH` (по умолчанию `./models`)
+только для чтения; без них API и сценарный калькулятор работают, прогноз явно недоступен.
+LLM необязателен: нужны `BB_LLM_BASE_URL`, `BB_LLM_API_KEY`, `BB_LLM_MODEL`.
+Никакого обучения или подмены данных при старте нет.
+
+```powershell
+docker compose up --build --detach --wait --wait-timeout 120
+docker compose ps
+docker compose logs --tail 100 --follow
+docker compose down
+```
+
+Закреплённые Python-зависимости для разработки (установите `uv==0.13.7`):
+
+```powershell
+uv sync --locked --extra dev --extra data --extra ml
+npm --prefix frontend ci
+npm --prefix frontend run build
+uv run --locked --no-sync uvicorn backend.app:app --reload
+```
+
+Для разработки React во втором терминале: `npm --prefix frontend run dev`.
+Проверки: `uv run --locked --no-sync pytest -q`,
+`uv run --locked --no-sync ruff check backend scripts/smoke.py`,
+`npm --prefix frontend run lint`, `npm --prefix frontend test`,
+`npm --prefix frontend run build`. После запуска сервера:
+`uv run --locked --no-sync python scripts/smoke.py`.
+
+Подробные команды для PowerShell/Linux, карта переменных, ML, диагностика Docker/LLM,
+ограничения CI и production: [инструкция DevOps](docs/devops.md).
+Фактические результаты интеграции: [отчёт](docs/devops-integration-report.md).
+
 FloCast — исследовательский прототип команды **Not Found** для анализа грузовых перевозок между Калининградской областью, Приморским краем, Камчатским краем и остальной Россией. Наблюдения, ML-прогнозы, синтетические примеры и сценарные расчёты показываются отдельно.
 
 **Единственный основной интерфейс — существующее React-приложение в frontend/.** Светлая серо-сиреневая тема, Sidebar, Hero с контейнеровозом, фиолетовые акценты, «Система в цифрах», карта и AI-панель сохранены. Доступно переключение светлой и тёмной тем.

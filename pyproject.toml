@@ -37,3 +37,6 @@ include = ["backend*", "pipeline*", "ml*"]
 
 [tool.setuptools.package-data]
 backend = ["scenario_registry.json"]
+
+[tool.uv]
+required-version = "==0.13.7"

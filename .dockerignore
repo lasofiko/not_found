@@ -1,0 +1,25 @@
+# Only application sources and build inputs; no secrets, artifacts or caches.
+**
+!pyproject.toml
+!uv.lock
+!.python-version
+!backend/
+!backend/**
+backend/tests
+backend/jsons
+backend/**/__pycache__
+!ml/
+!ml/**
+ml/**/__pycache__
+!pipeline/
+!pipeline/**
+pipeline/**/__pycache__
+!frontend/
+!frontend/**
+frontend/node_modules
+frontend/dist
+frontend/tests
+frontend/.env*
+**/*.pyc
+**/.env
+**/.env.*
