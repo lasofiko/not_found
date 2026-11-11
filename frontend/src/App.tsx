@@ -542,10 +542,10 @@ export default function App() {
           <div className="kpi-grid">
             <article className="kpi-card"><div className="kpi-top"><span>Прогноз на {lastForecast?.period ?? forecastDraft.end_year}</span><Box size={19} /></div><div className="kpi-value">{lastForecast ? formatNumber(lastForecast.value) : '—'}<small>т/год</small></div><div className="kpi-bottom">Перевезённая масса линии</div></article>
             <article className="kpi-card"><div className="kpi-top"><span>История модели</span><Clock3 size={19} /></div><div className="kpi-value">{forecastResult?.observations ?? '—'}<small>годовых наблюдений</small></div><div className="kpi-bottom">{forecastResult ? `${forecastResult.training_period.start}–${forecastResult.training_period.end}` : 'Модель недоступна'}</div></article>
-            <article className="kpi-card"><div className="kpi-top"><span>Метод</span><MapPin size={19} /></div><div className="kpi-value">{forecastResult?.selected_model ?? '—'}</div><div className="kpi-bottom">Выбор на 2020–2021</div></article>
+            <article className="kpi-card"><div className="kpi-top"><span>Метод</span><MapPin size={19} /></div><div className="kpi-value kpi-value--method">{forecastResult?.selected_model ?? '—'}</div><div className="kpi-bottom">Выбор на 2020–2021</div></article>
             <article className="kpi-card"><div className="kpi-top"><span>MAE проверки</span><Layers3 size={19} /></div><div className="kpi-value">{forecastResult?.metrics.selected.holdout.MAE != null ? formatNumber(forecastResult.metrics.selected.holdout.MAE) : '—'}<small>т</small></div><div className="kpi-bottom">2022–2023 · горизонт один год</div></article>
           </div>
-          <div className="charts-grid">
+          <div className="charts-grid forecast-charts">
             <article className="panel"><div className="panel-top"><div><h3>Перевезённая масса</h3><p>Прогноз · т/год</p></div><span className="tag">FORECAST</span></div><ForecastVolumeChart result={forecastResult} light={theme === 'light'} /></article>
             <article className="panel"><div className="panel-top"><div><h3>Динамика и неопределённость</h3><p>Условный интервал 95%</p></div><span className="tag">FORECAST</span></div><ForecastDynamicsChart result={forecastResult} light={theme === 'light'} /></article>
             <article className="panel"><div className="panel-top"><div><h3>Качество и baseline</h3><p>MAE на 2022–2023, т</p></div><span className="tag">BACKTEST</span></div><ModelQualityChart result={forecastResult} light={theme === 'light'} /></article>
