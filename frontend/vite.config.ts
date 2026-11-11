@@ -2,15 +2,33 @@ import path from 'path'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { buildInfo } from './build-info'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), 'BB_')
   const backendTarget = env.BB_DEV_BACKEND_URL || 'http://127.0.0.1:8000'
   const apiPrefix = env.BB_API_PREFIX || '/api/v1'
   return {
-    base: '/dashboard/',
+    base: '/',
     plugins: [
       react(),
+      buildInfo(),
+      {
+        name: 'flocast-legacy-ui-redirects',
+        configureServer(server) {
+          server.middlewares.use((request, response, next) => {
+            const original = (request.url || '').split('?')[0]
+            const pathname = original.replace(/^\/dashboard(?=\/|$)/, '') || '/'
+            if (['/capacity', '/capacity/', '/capacity.html', '/frontend/capacity.html'].includes(pathname)) {
+              response.writeHead(307, { Location: '/#capacity' })
+              response.end()
+            } else if (pathname !== original) {
+              response.writeHead(307, { Location: pathname === '/index.html' ? '/' : pathname })
+              response.end()
+            } else next()
+          })
+        },
+      },
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icons/icon-192.png', 'icons/icon-512.png'],
@@ -30,6 +48,7 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,woff2,jpg,png,webmanifest}'],
+          globIgnores: ['**/index.html'],
           navigateFallback: undefined,
           runtimeCaching: [
             {
@@ -42,6 +61,7 @@ export default defineConfig(({ mode }) => {
       }),
     ],
     server: {
+      host: '127.0.0.1',
       port: 5173,
       strictPort: true,
       proxy: Object.fromEntries(

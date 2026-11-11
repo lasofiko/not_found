@@ -3,16 +3,16 @@
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 
 from backend.adapters.llm import AnalysisDataRepositoryAdapter, LLMGatewayAdapter
 from backend.api.router import router
 from backend.core.exceptions import register_exception_handlers
 from backend.core.settings import Settings
 from backend.forecast_service import ForecastService
+from backend.frontend import FrontendFiles
 from backend.infrastructure.json_loader import JSONLoader
 from backend.infrastructure.llm_client import OpenAILLMClient
 from backend.use_cases.llm import AskTransportAssistant
@@ -58,6 +58,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def frontend_update_headers(request, call_next):
         response = await call_next(request)
         if request.url.path in {
+            "/",
+            "/index.html",
+            "/sw.js",
+            "/registerSW.js",
+            "/manifest.webmanifest",
             "/dashboard/",
             "/dashboard/index.html",
             "/dashboard/sw.js",
@@ -67,24 +72,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["Cache-Control"] = "no-store"
         return response
 
-    @application.get("/", include_in_schema=False)
-    def home() -> FileResponse:
-        return FileResponse(FRONTEND / "capacity.html")
-
     @application.get("/capacity", include_in_schema=False)
-    def capacity_page() -> FileResponse:
-        return FileResponse(FRONTEND / "capacity.html")
+    @application.get("/capacity/", include_in_schema=False)
+    @application.get("/capacity.html", include_in_schema=False)
+    @application.get("/frontend/capacity.html", include_in_schema=False)
+    @application.get("/dashboard/capacity", include_in_schema=False)
+    @application.get("/dashboard/capacity.html", include_in_schema=False)
+    def capacity_page() -> RedirectResponse:
+        return RedirectResponse("/#capacity", status_code=307)
 
-    dashboard = FRONTEND / "dist"
-    if (dashboard / "index.html").is_file():
-        application.mount("/dashboard", StaticFiles(directory=dashboard, html=True), name="dashboard")
-    else:
-
-        @application.get("/dashboard/", include_in_schema=False)
-        def dashboard_unavailable() -> None:
-            raise HTTPException(
-                503, "Демо-интерфейс не собран. Выполните npm --prefix frontend run build и перезапустите сервер."
-            )
+    @application.get("/dashboard", include_in_schema=False)
+    @application.get("/dashboard/{path:path}", include_in_schema=False)
+    def legacy_dashboard(path: str = "") -> RedirectResponse:
+        return RedirectResponse("/" if path == "index.html" else "/" + path, status_code=307)
 
     @application.get("/frontend/app.js", include_in_schema=False)
     def frontend_script() -> FileResponse:
@@ -98,6 +98,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def frontend_config() -> dict[str, str]:
         return {"apiBase": config.api_prefix}
 
+    # Register last: API/config/docs routes must take priority over the SPA.
+    application.mount("/", FrontendFiles(FRONTEND, config.api_prefix, application.routes.copy()), name="frontend")
     return application
 
 

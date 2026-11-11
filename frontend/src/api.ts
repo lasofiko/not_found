@@ -30,7 +30,33 @@ export const scenarioSchema = z.array(z.object({
 }))
 export type ScenarioDefinition = z.infer<typeof scenarioSchema>[number]
 
-export async function requestJson<T>(url: string, parse: (value: unknown) => T, signal?: AbortSignal, timeout = 10000): Promise<T> {
+export const capacitySchema = z.object({
+  status: z.literal('scenario'), unit: z.literal('tonnes'),
+  period: z.string(), assumption_source: z.string().min(1), warning: z.string().min(1),
+  baseline_shortfall_tonnes: number, scenario_capacity_tonnes: number,
+  scenario_shortfall_tonnes: number, shortfall_reduction_tonnes: number,
+  scenario_spare_capacity_tonnes: number,
+})
+export type CapacityResult = z.infer<typeof capacitySchema>
+export type CapacityInput = {
+  demand_tonnes: number; capacity_tonnes: number; capacity_delta_tonnes: number
+  period: string; assumption_source: string
+}
+
+export async function calculateCapacity(input: CapacityInput, signal?: AbortSignal): Promise<CapacityResult> {
+  const base = await getApiBase(signal)
+  return requestJson(base + '/scenarios/capacity', value => {
+    const result = capacitySchema.parse(value)
+    if (result.period !== input.period || result.assumption_source !== input.assumption_source.trim()) {
+      throw new Error('API вернул результат для других входных данных.')
+    }
+    return result
+  }, signal, 15000, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+}
+
+export async function requestJson<T>(url: string, parse: (value: unknown) => T, signal?: AbortSignal, timeout = 10000, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
   const abort = () => controller.abort()
   signal?.addEventListener('abort', abort, { once: true })
@@ -38,11 +64,18 @@ export async function requestJson<T>(url: string, parse: (value: unknown) => T, 
   let timedOut = false
   const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeout)
   try {
-    const response = await fetch(url, { signal: controller.signal, cache: 'no-store' })
-    const data: unknown = await response.json()
+    const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' })
+    let data: unknown
+    try { data = await response.json() } catch (cause) {
+      if (!response.ok) throw new Error(`Backend недоступен или вернул ошибку HTTP ${response.status}. Повторите запрос.`)
+      throw cause
+    }
     if (!response.ok) {
-      const error = z.object({ message: z.string() }).safeParse(data)
-      throw new Error(error.success ? error.data.message : `Ошибка API (${response.status})`)
+      const error = z.union([
+        z.object({ error: z.object({ message: z.string() }) }).transform(value => value.error.message),
+        z.object({ message: z.string() }).transform(value => value.message),
+      ]).safeParse(data)
+      throw new Error(error.success ? error.data : `Ошибка API (${response.status})`)
     }
     return parse(data)
   } catch (error) {

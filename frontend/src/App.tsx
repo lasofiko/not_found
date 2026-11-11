@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Box, CheckCircle2, Clock3,
+  ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Box, Calculator, CheckCircle2, Clock3,
   Database, Download, Info, Layers3, LayoutDashboard, MapPin,
   Menu, Moon, Paperclip, RotateCcw, Route, Sparkles, Sun, Truck, X,
 } from 'lucide-react'
@@ -29,6 +29,7 @@ import { createDemoReport, createForecastReport } from './report'
 import { TransportGallery } from './TransportGallery'
 import { FilterSelect } from './FilterSelect'
 import { GeographyFilters } from './GeographyFilters'
+import { CapacityCalculator } from './CapacityCalculator'
 import { DEFAULT_GEOGRAPHY, CORRIDORS, isDemoAvailable, mapLinks, routeSelection, selectionReport, type Geography } from './geography'
 import './App.css'
 
@@ -52,6 +53,7 @@ const navItems = [
   { id: 'routes', label: 'Маршруты', icon: Route },
   { id: 'forecast', label: 'Прогноз', icon: ArrowUpRight },
   { id: 'scenarios', label: 'Сценарии', icon: Layers3 },
+  { id: 'capacity', label: 'Калькулятор', icon: Calculator },
   { id: 'data', label: 'Данные', icon: Database },
 ]
 
@@ -178,6 +180,7 @@ export default function App() {
 
   const [apiBase, setApiBase] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [configRetry, setConfigRetry] = useState(0)
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
   const [questionInput, setQuestionInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -192,6 +195,8 @@ export default function App() {
   const [scenarioDefinitions, setScenarioDefinitions] = useState<ScenarioDefinition[]>([])
   const [scenarioRegistryError, setScenarioRegistryError] = useState('')
   const forecastSequence = useRef(0)
+  const initialSection = useRef(window.location.hash.slice(1))
+  const initialSectionHandled = useRef(false)
   const lastForecast = forecastResult?.predictions.at(-1)
   const forecastSource = forecastResult?.provenance.sources[0]
 
@@ -254,27 +259,39 @@ export default function App() {
   }, [navOpen])
 
   useEffect(() => {
+    const controller = new AbortController()
     async function loadConfig() {
       try {
-        const response = await fetch(new URL('/config.json', window.location.origin), { cache: 'no-store' })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const config = await response.json()
-        const base = config.apiBase
-        if (typeof base !== 'string' ||
-            !(base.startsWith('/') && !base.startsWith('//') || /^https?:\/\//i.test(base))) {
-          throw new Error('Некорректный адрес API')
-        }
-        const url = new URL(base, window.location.origin)
-        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Некорректный адрес API')
-        setApiBase(url.href.replace(/\/+$/, ''))
+        const base = await getApiBase(controller.signal)
+        if (controller.signal.aborted) return
+        setApiBase(base)
         setApiError(null)
-      } catch {
+      } catch (error) {
+        if (controller.signal.aborted) return
         setApiBase(null)
-        setApiError('Не удалось загрузить адрес API. Проверьте config.json и доступность сервера.')
+        setApiError(error instanceof Error ? error.message : 'Не удалось загрузить адрес API.')
       }
     }
     loadConfig()
-  }, [])
+    return () => controller.abort()
+  }, [configRetry])
+
+  useEffect(() => {
+    if (forecastLoading || initialSectionHandled.current) return
+    const id = initialSection.current
+    if (window.location.hash.slice(1) !== id || !navItems.some(item => item.id === id)) return
+    let cancelled = false
+    let frame = 0
+    void document.fonts.ready.then(() => {
+      if (cancelled) return
+      frame = requestAnimationFrame(() => {
+        if (window.location.hash.slice(1) !== id) return
+        document.getElementById(id)?.scrollIntoView({ behavior: 'instant' })
+        initialSectionHandled.current = true
+      })
+    })
+    return () => { cancelled = true; cancelAnimationFrame(frame) }
+  }, [forecastLoading])
 
   useEffect(() => {
     const id = ++forecastSequence.current
@@ -326,31 +343,16 @@ export default function App() {
   }, [forecastDraft, forecastRetry])
 
   const callAssistant = useCallback(async (endpoint: 'summary' | 'ask', body?: { question: string }) => {
-    if (!apiBase) {
-      throw new Error(apiError || 'Адрес API не настроен')
-    }
-    const url = `${apiBase}/llm/${endpoint}`
-    const response = await fetch(url, {
+    if (!apiBase) throw new Error(apiError || 'Адрес API не настроен')
+    return requestJson(apiBase + '/llm/' + endpoint, (data) => {
+      const answer = (data as { answer?: unknown } | null)?.answer
+      if (typeof answer !== 'string' || !answer.trim()) throw new Error('Сервер вернул ответ без текста.')
+      return answer
+    }, undefined, 65000, {
       method: endpoint === 'summary' ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     })
-    let data: unknown
-    try {
-      data = await response.json()
-    } catch {
-      throw new Error('Сервер вернул некорректный JSON-ответ')
-    }
-    if (!response.ok) {
-      const error = (data as { error?: { message?: string; code?: string } } | undefined)?.error
-      const message = error?.message || `Ошибка API (${response.status})`
-      throw new Error(message)
-    }
-    const answer = (data as { answer?: string } | undefined)?.answer
-    if (typeof answer !== 'string') {
-      throw new Error('Сервер вернул ответ без поля answer')
-    }
-    return answer
   }, [apiBase, apiError])
 
   const fetchSummary = useCallback(async () => {
@@ -458,14 +460,14 @@ export default function App() {
         </header>
 
         <section className="hero" id="overview" aria-labelledby="hero-title">
-          <img className="hero-photo" src="./images/sea.jpg" alt="Контейнерное судно у причала" fetchPriority="high" />
+          <img className="hero-photo" src={`${import.meta.env.BASE_URL}images/sea.jpg`} alt="Контейнерное судно у причала" fetchPriority="high" />
           <div className="hero-shade" />
           <svg className="hero-orbits" viewBox="0 0 600 500" fill="none" aria-hidden="true"><path d="M0 360C180 80 400 100 610 250M0 420C150 170 450 110 620 310M0 480C160 240 460 180 640 380" /><circle cx="285" cy="200" r="4" /><circle cx="470" cy="225" r="3" /></svg>
           <div className="hero-content"><p className="eyebrow">Интеллектуальная транспортная аналитика</p>
             <div className="hero-logo">FloCast<span>.</span></div>
             <h1 id="hero-title">Исследуем грузопотоки.<br /><em>Моделируем будущее.</em></h1>
             <p className="hero-description">Калининградская область, Приморский край и Камчатка: исследуем связи с остальной Россией.</p>
-            <div className="hero-actions"><a className="button-primary" href="#analytics">Исследовать данные <ArrowRight size={17} /></a><a className="button-secondary" href="#forecast">Посмотреть прогноз <ArrowUpRight size={17} /></a></div>
+            <div className="hero-actions"><a className="button-primary" href="#analytics">Исследовать данные <ArrowRight size={17} /></a><a className="button-secondary" href="#forecast">Посмотреть демо <ArrowUpRight size={17} /></a></div>
           </div>
         </section>
 
@@ -535,14 +537,16 @@ export default function App() {
 
         <section className="section" id="scenarios" aria-labelledby="scenarios-title">
           <div className="section-heading"><div><p className="eyebrow">Сценарный анализ</p><h2 id="scenarios-title">Что, если изменить условия?</h2></div><span className="section-number">СЦЕНАРИИ</span></div>
-          <div className="scenario-layout"><div className="scenario-options">{SCENARIOS.map((scenario) => <button disabled={!hasDemo} key={scenario.id} className={`scenario-option ${applied.scenario === scenario.id ? 'selected' : ''}`} aria-pressed={applied.scenario === scenario.id} onClick={() => { setDraft({ ...applied, scenario: scenario.id }); setApplied({ ...applied, scenario: scenario.id }) }}><span><strong>{scenario.title}</strong><small>{scenario.description}</small></span><ArrowUpRight size={17} /></button>)}<p className="tiny-note">{insight}</p><a className="button-secondary" href="/capacity">Калькулятор мощности <ArrowRight size={16} /></a></div>
+          <div className="scenario-layout"><div className="scenario-options">{SCENARIOS.map((scenario) => <button disabled={!hasDemo} key={scenario.id} className={`scenario-option ${applied.scenario === scenario.id ? 'selected' : ''}`} aria-pressed={applied.scenario === scenario.id} onClick={() => { setDraft({ ...applied, scenario: scenario.id }); setApplied({ ...applied, scenario: scenario.id }) }}><span><strong>{scenario.title}</strong><small>{scenario.description}</small></span><ArrowUpRight size={17} /></button>)}<p className="tiny-note">{insight}</p><a className="button-secondary" href="#capacity">Калькулятор мощности <ArrowRight size={16} /></a></div>
           <article className="panel"><div className="panel-top"><div><h3>Сопоставление гипотез</h3><p>2030 · синтетические объём и время доставки</p></div><span className="tag">ДЕМО</span></div>{hasDemo ? <HypothesisChart data={result.hypotheses} timeUnit={result.timeUnit} light={theme === 'light'} /> : unavailable}</article></div>
-          <div className="forecast-banner"><div><span className="tag">РЕЕСТР BACKEND</span><h3>Транспортные действия</h3><p>Определения загружаются из `/api/v1/scenarios`. Численный эффект рассчитывается только как чувствительность к вводу пользователя.</p></div><a className="button-secondary" href="/capacity">Калькулятор мощности <ArrowRight size={16} /></a></div>
+          <div className="forecast-banner"><div><span className="tag">РЕЕСТР BACKEND</span><h3>Транспортные действия</h3><p>Определения загружаются из `/api/v1/scenarios`. Численный эффект рассчитывается только как чувствительность к вводу пользователя.</p></div><a className="button-secondary" href="#capacity">Калькулятор мощности <ArrowRight size={16} /></a></div>
           {scenarioRegistryError && <p className="chat-error" role="alert">{scenarioRegistryError} <button className="text-button" onClick={() => setForecastRetry(value => value + 1)}>Повторить</button></p>}
           <div className="data-grid">{scenarioDefinitions.filter(scenario => scenario.label).map(scenario => <article className="panel" key={scenario.id}><h3>{scenario.label}. {scenario.name}</h3><p>{scenario.mechanism}</p><p>{scenario.limitation}</p><span className="tag">{scenario.calculation_status}</span></article>)}</div>
         </section>
 
-        <section className="section ai-feature" aria-labelledby="ai-title"><img src="./images/logistics.jpg" alt="" loading="lazy" /><div className="ai-feature-shade" /><div className="ai-feature-copy"><p className="eyebrow">Помощник исследователя</p><h2 id="ai-title">Больше контекста.<br /><em>Больше понимания.</em></h2><p>Обсудите транспортную связанность, ограничения данных и вопросы для дальнейшего исследования.</p><div className="ai-feature-tags"><span>Данные и источники</span><span>Транспорт</span><span>Гипотезы</span></div><button className="button-primary" onClick={() => setAssistantOpen(true)}><Sparkles size={17} />Открыть AI-ассистента</button><p className="tiny-note">Ассистент работает через backend проекта. Ответы формируются по переданному контексту.</p></div></section>
+        <CapacityCalculator />
+
+        <section className="section ai-feature" aria-labelledby="ai-title"><img src={`${import.meta.env.BASE_URL}images/logistics.jpg`} alt="" loading="lazy" /><div className="ai-feature-shade" /><div className="ai-feature-copy"><p className="eyebrow">Помощник исследователя</p><h2 id="ai-title">Больше контекста.<br /><em>Больше понимания.</em></h2><p>Обсудите транспортную связанность, ограничения данных и вопросы для дальнейшего исследования.</p><div className="ai-feature-tags"><span>Данные и источники</span><span>Транспорт</span><span>Гипотезы</span></div><button className="button-primary" onClick={() => setAssistantOpen(true)}><Sparkles size={17} />Открыть AI-ассистента</button><p className="tiny-note">Ассистент работает через backend проекта. Ответы формируются по переданному контексту.</p></div></section>
 
         <section className="section" id="data" aria-labelledby="data-title"><div className="section-heading"><div><p className="eyebrow">Прозрачность исследования</p><h2 id="data-title">Данные и их границы.</h2></div><span className="section-number">ДАННЫЕ</span></div><div className="data-grid">
           <article className="panel"><Database size={23} /><h3>Источник и версии прогноза</h3>{forecastResult ? <><p>{forecastSource?.organization}</p>{forecastSource && <p><a href={forecastSource.url} target="_blank" rel="noreferrer">Открыть источник</a></p>}<p>Модель <code>{forecastResult.model_version}</code></p><p>Данные <code>{forecastResult.data_version}</code></p><p>{forecastResult.geography.scope}</p>{forecastResult.warnings.map(warning => <p key={warning}>{warning}</p>)}</> : <p>Источник появится после успешной проверки артефакта. При ошибке значения не подставляются.</p>}</article>
@@ -607,7 +611,7 @@ export default function App() {
           )}
         </div>
 
-        {chatError && <div className="chat-error" role="alert">{chatError}</div>}
+        {(chatError || apiError) && <div className="chat-error" role="alert">{chatError || apiError}{apiError && <button className="text-button" onClick={() => setConfigRetry(value => value + 1)}>Повторить подключение</button>}</div>}
 
         <div className="chat-footer">
           <button
@@ -627,6 +631,7 @@ export default function App() {
               placeholder={apiBase ? 'Введите сообщение' : 'API не настроен'}
               disabled={!apiBase || isLoading}
               aria-label="Вопрос ассистенту"
+              maxLength={4000}
             />
             <button
               className="chat-submit"

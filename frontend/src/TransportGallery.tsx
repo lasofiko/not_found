@@ -22,14 +22,14 @@ export function TransportGallery() {
       <div className="transport-intro"><div><p className="eyebrow">Транспортная система</p><h2 id="transport-title">Четыре среды.<br /><em>Одна логистическая сеть.</em></h2></div></div>
       <div className="transport-grid">{transports.map((transport) => (
         <button className={`transport-card transport-${transport.id}`} key={transport.id} onClick={() => setSelected(transport)} aria-haspopup="dialog">
-          <img src={`./images/${transport.image}`} alt={transport.alt} loading="lazy" />
+          <img src={`${import.meta.env.BASE_URL}images/${transport.image}`} alt={transport.alt} loading="lazy" />
           <span className="transport-shade" />
           <span className="transport-copy"><span className="transport-index">{transport.id === 'rail_land' ? 'ЖЕЛЕЗНАЯ ДОРОГА' : transport.id === 'sea' ? 'МОРЕ' : transport.id === 'air' ? 'АВИА' : 'АВТО'}</span><strong>{transport.label}</strong><span>{transport.caption}</span></span>
           <span className="go-arrow"><ArrowUpRight size={20} /></span>
         </button>
       ))}</div>
       <dialog ref={dialog} className="transport-dialog" aria-labelledby="transport-dialog-title" onCancel={() => setSelected(null)} onClose={() => setSelected(null)}>
-        {selected && <><img src={`./images/${selected.image}`} alt={selected.alt} /><button className="icon-button dialog-close" onClick={() => setSelected(null)} aria-label="Закрыть описание транспорта"><X size={20} /></button><div className="transport-dialog-copy"><p className="eyebrow">Транспортная система</p><h2 id="transport-dialog-title">{selected.label}</h2><p>{selected.description}</p><span className="tag">Описание вида · не числовой ряд</span></div></>}
+        {selected && <><img src={`${import.meta.env.BASE_URL}images/${selected.image}`} alt={selected.alt} /><button className="icon-button dialog-close" onClick={() => setSelected(null)} aria-label="Закрыть описание транспорта"><X size={20} /></button><div className="transport-dialog-copy"><p className="eyebrow">Транспортная система</p><h2 id="transport-dialog-title">{selected.label}</h2><p>{selected.description}</p><span className="tag">Описание вида · не числовой ряд</span></div></>}
       </dialog>
     </section>
   )

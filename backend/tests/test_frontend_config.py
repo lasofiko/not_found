@@ -1,5 +1,7 @@
-"""Frontend configuration is served from the active backend settings."""
+"""One React UI, runtime API configuration and verified production builds."""
 
+import hashlib
+import importlib
 import json
 from pathlib import Path
 
@@ -7,11 +9,32 @@ from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from backend.core.settings import Settings
+from backend.frontend import frontend_source_digest
+
+
+def write_build(frontend: Path, html: str) -> None:
+    dist = frontend / "dist"
+    dist.mkdir(exist_ok=True)
+    (dist / "index.html").write_text(html, encoding="utf-8")
+    (dist / "build-info.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source_sha256": frontend_source_digest(frontend),
+                "index_sha256": hashlib.sha256((dist / "index.html").read_bytes()).hexdigest(),
+            }
+        )
+    )
 
 
 def test_frontend_uses_served_config(client: TestClient) -> None:
-    assert client.get("/").status_code == 200
-    assert 'src="app.js"' in client.get("/").text
+    for route in ("/capacity", "/capacity/", "/capacity.html", "/dashboard/capacity.html"):
+        response = client.get(route, follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"] == "/#capacity"
+    old = client.get("/dashboard/", follow_redirects=False)
+    assert old.status_code == 307
+    assert old.headers["location"] == "/"
     assert client.get("/app.js").status_code == 200
     assert client.get("/config.json").json() == {"apiBase": "/api/v1"}
     assert "/config.json" in client.get("/openapi.json").json()["paths"]
@@ -22,11 +45,7 @@ def test_frontend_uses_served_config(client: TestClient) -> None:
 
 
 def test_custom_prefix_and_separate_origin() -> None:
-    settings = Settings(
-        _env_file=None,
-        api_prefix="/custom/v2",
-        cors_origins=["http://127.0.0.1:5173"],
-    )
+    settings = Settings(_env_file=None, api_prefix="/custom/v2", cors_origins=["http://127.0.0.1:5173"])
     client = TestClient(create_app(settings))
     assert client.get("/config.json").json() == {"apiBase": "/custom/v2"}
     assert client.get("/api/v1/health").status_code == 404
@@ -47,37 +66,70 @@ def test_custom_prefix_and_separate_origin() -> None:
     assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
 
 
-def test_dashboard_without_build_keeps_api_and_capacity_available(tmp_path, monkeypatch) -> None:
-    import importlib
-
+def test_frontend_without_build_keeps_api_available(tmp_path, monkeypatch) -> None:
     app_module = importlib.import_module("backend.app")
-    (tmp_path / "capacity.html").write_text("Калькулятор", encoding="utf-8")
     monkeypatch.setattr(app_module, "FRONTEND", tmp_path)
     client = TestClient(create_app(Settings(_env_file=None)))
-    response = client.get("/dashboard/")
+    response = client.get("/")
     assert response.status_code == 503
     assert "npm --prefix frontend run build" in response.json()["error"]["message"]
-    assert client.get("/capacity").text == "Калькулятор"
+    assert client.get("/capacity", follow_redirects=False).headers["location"] == "/#capacity"
     assert client.get("/api/v1/health").status_code == 200
+    assert client.get("/api/v1/missing").status_code == 404
+    write_build(tmp_path, "<html>FloCast</html>")
+    assert client.get("/").text == "<html>FloCast</html>"
+    write_build(tmp_path, "<html>FloCast updated</html>")
+    assert client.get("/").text == "<html>FloCast updated</html>"
+    (tmp_path / "dist" / "index.html").unlink()
+    assert client.get("/").status_code == 503
 
 
-def test_dashboard_serves_build_assets_without_exposing_sources(tmp_path, monkeypatch) -> None:
-    import importlib
-
+def test_frontend_serves_build_assets_without_exposing_sources(tmp_path, monkeypatch) -> None:
     app_module = importlib.import_module("backend.app")
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text('<html lang="ru"><script src="/dashboard/assets/demo.js"></script></html>')
-    (dist / "assets" / "demo.js").write_text("console.log('synthetic')")
+    write_build(tmp_path, '<html lang="ru"><script src="/assets/demo.js"></script></html>')
+    (dist / "assets" / "demo.js").write_text("console.log('ui')")
     (tmp_path / "private.txt").write_text("must not be served")
     monkeypatch.setattr(app_module, "FRONTEND", tmp_path)
     client = TestClient(create_app(Settings(_env_file=None, api_prefix="/custom/v2")))
-    assert client.get("/dashboard/").status_code == 200
-    assert client.get("/dashboard/").headers["cache-control"] == "no-store"
-    assert client.get("/dashboard/index.html").headers["cache-control"] == "no-store"
-    assert client.get("/dashboard/assets/demo.js").status_code == 200
-    assert client.get("/dashboard/missing.js").status_code == 404
-    assert client.get("/dashboard/src/App.tsx").status_code == 404
-    assert client.get("/dashboard/%2e%2e/private.txt").status_code == 404
+    assert client.get("/").status_code == 200
+    assert client.get("/").headers["cache-control"] == "no-store"
+    assert client.get("/index.html").headers["cache-control"] == "no-store"
+    assert client.get("/forecast/2030").text == client.get("/").text
+    assert client.get("/forecast/2030").headers["cache-control"] == "no-store"
+    assert client.get("/assets/demo.js").status_code == 200
+    for route in (
+        "/missing.js",
+        "/src/App.tsx",
+        "/assets/missing",
+        "/src/missing",
+        "/api/v1/missing",
+        "/custom/v2/missing",
+        "/%2e%2e/private.txt",
+    ):
+        assert client.get(route).status_code == 404
     assert client.get("/custom/v2/health").status_code == 200
     assert client.get("/config.json").json() == {"apiBase": "/custom/v2"}
+
+
+def test_stale_build_is_rejected_without_stopping_api(tmp_path, monkeypatch) -> None:
+    app_module = importlib.import_module("backend.app")
+    (tmp_path / "src").mkdir()
+    source = tmp_path / "src" / "App.tsx"
+    source.write_text("approved ship interface")
+    write_build(tmp_path, "<html>approved ship interface</html>")
+    monkeypatch.setattr(app_module, "FRONTEND", tmp_path)
+    client = TestClient(create_app(Settings(_env_file=None)))
+    assert client.get("/").status_code == 200
+    source.write_text("updated approved ship interface")
+    response = client.get("/")
+    assert response.status_code == 503
+    assert "устарела" in response.json()["error"]["message"]
+    assert client.get("/api/v1/health").status_code == 200
+    write_build(tmp_path, "<html>updated approved ship interface</html>")
+    assert client.get("/").text == "<html>updated approved ship interface</html>"
+    (tmp_path / "dist" / "index.html").write_text("<html>obsolete UI</html>")
+    assert client.get("/").status_code == 503
+    (tmp_path / "dist" / "build-info.json").unlink()
+    assert client.get("/").status_code == 503
