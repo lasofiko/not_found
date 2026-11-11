@@ -24,6 +24,7 @@ notebooks = [
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests", "tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py311"
