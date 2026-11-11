@@ -20,7 +20,7 @@ FloCast — исследовательский прототип команды *
 
 Команды выполняются из корня репозитория. Для backend нужен Python 3.11+.
 
-### Подготовка Backend
+### Backend и калькулятор
 
 Windows PowerShell
 
@@ -29,6 +29,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
+uvicorn backend.app:app --reload
 ```
 
 macOS и Linux
@@ -38,61 +39,25 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 test -e .env || cp .env.example .env
+uvicorn backend.app:app --reload
 ```
 
-Если окружение уже подготовлено, достаточно активировать его. Для frontend нужен
-Node.js `^22.12.0 || >=24.0.0` и npm. Установите зависимости один раз:
+Калькулятор доступен по `http://127.0.0.1:8000/` и `/capacity`, Swagger — по `http://127.0.0.1:8000/docs`. При совместном размещении калькулятор получает актуальный префикс API из `GET /config.json`. После изменения `BB_API_PREFIX` достаточно перезапустить сервер.
+
+### React-демо
+
+Для сборки нужен Node.js из диапазона `^22.12.0 || >=24.0.0` и npm. В другом терминале выполните команды из корня проекта.
 
 ```bash
 npm --prefix frontend ci --ignore-scripts
-```
-
-### Разработка: два процесса
-
-В первом терминале из корня проекта с активным Python-окружением:
-
-```bash
-python -m uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000
-```
-
-Во втором терминале:
-
-```bash
-npm --prefix frontend run dev -- --host 127.0.0.1
-```
-
-Открыть **http://127.0.0.1:5173/**. Vite обслуживает существующий React-интерфейс
-с горячим обновлением и проксирует `/config.json` и API в FastAPI на 8000.
-`BB_API_PREFIX` берётся из корневого `.env` или окружения; другой адрес API задаётся
-через `BB_DEV_API_TARGET`. После изменения настроек перезапустите оба процесса.
-При работе через proxy отдельный CORS не нужен. Для прямых запросов с другого
-origin добавьте его в `BB_CORS_ORIGINS`. React получает фактический префикс
-из `/config.json`; ошибки подключения показываются без подстановки результатов.
-
-### Демонстрация: один адрес
-
-```bash
 npm --prefix frontend run build
-python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 ```
 
-Открыть **http://127.0.0.1:8000/**. FastAPI отдаёт production-сборку того же React,
-а также API. Vite для демонстрации не требуется. Калькулятор находится внутри
-React в разделе «Калькулятор», прямой адрес — `http://127.0.0.1:8000/#capacity`.
-Старые `/dashboard/` и `/capacity` автоматически ведут в это же приложение.
-Swagger: `http://127.0.0.1:8000/docs`.
+Перезапустите backend после сборки и откройте `http://127.0.0.1:8000/dashboard/`. Без сборки этот адрес возвращает HTTP 503 с инструкцией.
 
-Каждая сборка содержит `dist/flocast-build.json` с SHA-256 исходников и ресурсов.
-Если исходники изменились, сборка отсутствует или осталась от старой версии,
-Backend возвращает 503 с командой сборки, продолжая обслуживать API.
-Повторите `npm --prefix frontend run build` и обновите страницу; перезапуск
-Backend после сборки не нужен. HTML и настройки не кэшируются; service worker
-не кэширует HTML и API. Старый PWA в области `/dashboard/` снимается с регистрации.
-`dist` создаётся локально и не включается в Git.
+### Отдельный статический калькулятор
 
-Старые `capacity.html` и `app.js` сохранены как исходные материалы. FastAPI
-их больше не раздаёт: формулы калькулятора остаются в Backend, React отправляет
-в существующий API только введённые пользователем значения.
+Для отдельного размещения калькулятора отредактируйте `frontend/config.json`: укажите абсолютный базовый URL backend с префиксом API, например `{"apiBase":"http://127.0.0.1:8000/api/v1"}`. Запустите из корня репозитория `python -m http.server 5173 --directory frontend` и откройте `http://127.0.0.1:5173/capacity.html`. Добавьте точный origin `http://127.0.0.1:5173` в JSON-массив `BB_CORS_ORIGINS`, затем перезапустите backend. Для другого `BB_API_PREFIX` обновите только `apiBase` в файле отдельного Frontend. Если конфигурация или API недоступны, страница показывает сообщение об ошибке и не отправляет расчёт без настроенного адреса.
 
 ### Состояние API
 
@@ -104,10 +69,7 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/config
 Invoke-RestMethod http://127.0.0.1:8000/api/v1/status
 ```
 
-Существующий `POST /api/v1/scenarios/capacity` сохранён и подключён к калькулятору
-в React. Он считает только чувствительность дефицита мощности к **введённым
-пользователем** значениям, без модели или проверенного грузопотока. Поэтому
-`status.capabilities.scenario_analysis` остаётся `false`.
+Существующий `POST /api/v1/scenarios/capacity` и главная страница сохранены. Они считают только чувствительность дефицита мощности к **введённым пользователем** значениям, без модели или проверенного грузопотока. Поэтому `status.capabilities.scenario_analysis` остаётся `false`.
 
 Будущие `/history`, `/scenarios/compare`, `/sources` и `/datasets/upload` описаны в [контракте API](docs/api_contract.md), но маршруты пока не зарегистрированы.
 

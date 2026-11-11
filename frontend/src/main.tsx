@@ -7,13 +7,6 @@ import '@fontsource/inter/700.css'
 import './index.css'
 import App from './App.tsx'
 
-// Legacy links work in both Vite and FastAPI without opening a second page.
-if (['/capacity', '/capacity/', '/capacity.html'].includes(window.location.pathname)) {
-  window.history.replaceState(null, '', '/#capacity')
-} else if (window.location.pathname === '/dashboard' || window.location.pathname.startsWith('/dashboard/')) {
-  window.history.replaceState(null, '', '/' + window.location.hash)
-}
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

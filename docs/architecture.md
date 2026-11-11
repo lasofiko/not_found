@@ -2,20 +2,12 @@
 
 Backend: фабрика FastAPI `backend/app.py`, настройки `BB_*`, общие ошибки,
 маршруты health/config/status и сценарный расчёт мощности. API не требует
-данных или ML. Калькулятор мощности встроен в React (`CapacityCalculator.tsx`),
-читает фактический префикс из `/config.json` и вызывает сохранённый API.
-Старые `capacity.html` и `app.js` не раздаются Backend, исходники сохранены.
+данных или ML. Калькулятор мощности (`frontend/capacity.html`, `app.js`)
+раздаётся на `/` и `/capacity`, читает фактический префикс из `/config.json`.
 
 React + TypeScript + Vite собираются в `frontend/dist`, раздаются backend
-на `/`. `/dashboard/` перенаправляет на `/`, `/capacity` — на `/#capacity`.
-Без актуальной сборки UI возвращает 503 с инструкцией, API остаётся доступным.
-Плагин `frontend/build-info.ts` записывает SHA-256 исходников и ресурсов;
-`backend/frontend.py` проверяет их перед раздачей и поддерживает SPA fallback.
-API, Swagger, исходники и отсутствующие ресурсы не перехватываются fallback.
-HTML, конфигурация и service worker выдаются без кэширования. Сборка становится
-доступной без перезапуска сервера. Прежний PWA scope `/dashboard/` удаляется.
-При разработке Vite слушает 5173, страница — `/`. Proxy получает `BB_API_PREFIX`
-и `BB_DEV_API_TARGET` из корневого `.env` или окружения.
+на `/dashboard/`. Без сборки доступен калькулятор, демо возвращает 503 с
+инструкцией. При разработке Vite слушает 5173, страница — `/dashboard/`.
 React читает `/config.json`, `/api/v1/forecasts` и `/api/v1/scenarios`.
 ForecastService использует существующий `ml.predict.forecast`, проверяет JSON
 модели, SHA-256, текущий протокол и календарь. Модель не обучается в HTTP-запросе.
