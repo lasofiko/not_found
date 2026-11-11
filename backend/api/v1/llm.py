@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
-from backend.schemas.llm import AnswerResponse, QuestionRequest
+from backend.schemas.llm import AnswerResponse, AssistantSelection, QuestionRequest
 from backend.use_cases.llm import AskTransportAssistant, LLMNotConfiguredError
 
 router = APIRouter(tags=["Transport assistant"])
@@ -21,12 +21,10 @@ LLMUseCase = Annotated[AskTransportAssistant, Depends(get_llm_use_case)]
 
 
 @router.get("/llm/summary", response_model=AnswerResponse, summary="Автоматическая сводка по данным")
-async def summary(use_case: LLMUseCase) -> AnswerResponse:
-    answer = await use_case.summary()
-    return AnswerResponse(answer=answer)
+async def summary(use_case: LLMUseCase, selection: Annotated[AssistantSelection, Depends()]) -> AnswerResponse:
+    return await use_case.summary(selection)
 
 
 @router.post("/llm/ask", response_model=AnswerResponse, summary="Задать вопрос ассистенту")
 async def ask(body: QuestionRequest, use_case: LLMUseCase) -> AnswerResponse:
-    answer = await use_case.ask(body.question)
-    return AnswerResponse(answer=answer)
+    return await use_case.ask(body.question, AssistantSelection(**body.model_dump(exclude={"question"})))

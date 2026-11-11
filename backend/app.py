@@ -7,25 +7,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 
-from backend.adapters.llm import AnalysisDataRepositoryAdapter, LLMGatewayAdapter
+from backend.adapters.llm import LLMGatewayAdapter
 from backend.api.router import router
 from backend.core.exceptions import register_exception_handlers
 from backend.core.settings import Settings
 from backend.forecast_service import ForecastService
 from backend.frontend import FrontendFiles
-from backend.infrastructure.json_loader import JSONLoader
 from backend.infrastructure.llm_client import OpenAILLMClient
+from backend.redirects import legacy_dashboard_location
 from backend.use_cases.llm import AskTransportAssistant
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
-LLM_CONTEXT_DIR = Path(__file__).resolve().parent / "jsons"
 
 
-def _build_llm_use_case(settings: Settings) -> AskTransportAssistant | None:
+def _build_llm_use_case(settings: Settings, forecast_service: ForecastService) -> AskTransportAssistant | None:
     """Assemble the assistant use case when provider settings are present."""
     if not settings.llm_configured:
         return None
-    data_repo = AnalysisDataRepositoryAdapter(JSONLoader(LLM_CONTEXT_DIR))
     client = OpenAILLMClient(
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
@@ -33,7 +31,7 @@ def _build_llm_use_case(settings: Settings) -> AskTransportAssistant | None:
         timeout_seconds=settings.llm_timeout_seconds,
     )
     llm_gateway = LLMGatewayAdapter(client)
-    return AskTransportAssistant(data_repo, llm_gateway)
+    return AskTransportAssistant(forecast_service, llm_gateway)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -43,7 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(title=config.app_name, version="0.2.0")
     application.state.settings = config
     application.state.forecast_service = ForecastService()
-    application.state.llm_use_case = _build_llm_use_case(config)
+    application.state.llm_use_case = _build_llm_use_case(config, application.state.forecast_service)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=config.cors_origins,
@@ -84,7 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/dashboard", include_in_schema=False)
     @application.get("/dashboard/{path:path}", include_in_schema=False)
     def legacy_dashboard(path: str = "") -> RedirectResponse:
-        return RedirectResponse("/" if path == "index.html" else "/" + path, status_code=307)
+        return RedirectResponse(legacy_dashboard_location(path), status_code=307)
 
     @application.get("/frontend/app.js", include_in_schema=False)
     def frontend_script() -> FileResponse:

@@ -37,36 +37,63 @@ def safe_relative(name):
     return path
 
 
+def processed_outputs(archive, *, required=False):
+    """Полный состав processed задаёт исходный манифест, а не наличие вложений."""
+    name = "data/processed/build_manifest.json"
+    names = set(archive.namelist())
+    if name not in names:
+        if required:
+            raise ValueError("Нет исходного манифеста обработанных таблиц")
+        return {}
+    upstream = json.loads(archive.read(name))
+    outputs = {p: sha for p, sha in upstream["outputs"].items() if p.startswith("data/processed/")}
+    for relative, expected in outputs.items():
+        safe_relative(relative)
+        if relative not in names:
+            raise ValueError("Нет обязательного processed-выхода: " + relative)
+        with archive.open(relative) as stream:
+            if stream_sha(stream) != expected:
+                raise ValueError("Входная таблица отличается от исходного манифеста: " + relative)
+    return outputs
+
+
+def validate_archive(root, archive, *, require_processed=False):
+    """Только чтение: все проверки должны завершиться до установки любых частей."""
+    members = [i for i in archive.infolist() if not i.is_dir()]
+    names = [i.filename for i in members]
+    if len(names) != len(set(names)):
+        raise ValueError("Повтор имени в ZIP")
+    if sum(i.file_size for i in members) > 4 * 1024**3:
+        raise ValueError("ZIP превышает предел распаковки 4 ГиБ")
+    index_bytes = archive.read(INDEX) if INDEX in names else (root / INDEX).read_bytes()
+    index = json.loads(index_bytes.decode("utf-8-sig"))
+    expected = {}
+    for record in index["files"]:
+        safe_relative(record["path"])
+        if record["path"] in expected:
+            raise ValueError("Повтор пути во внутреннем манифесте")
+        expected[record["path"]] = record
+    for item in members:
+        safe_relative(item.filename)
+        if (item.external_attr >> 16) & 0o170000 == 0o120000:
+            raise ValueError("Символическая ссылка в ZIP")
+        if item.filename == INDEX:
+            continue  # Сам манифест не содержит собственного хеша.
+        record = expected.get(item.filename)
+        if record is None or record["bytes"] != item.file_size:
+            raise ValueError("Неполный манифест/размер: " + item.filename)
+        with archive.open(item) as stream:
+            if stream_sha(stream) != record["sha256"]:
+                raise ValueError("SHA-256 вложения не совпадает: " + item.filename)
+    processed_outputs(archive, required=require_processed or "data/processed/build_manifest.json" in expected)
+    return members, index_bytes, expected
+
+
 def import_archive(root, path):
     """Сначала проверить весь ZIP, затем сохранить и установить только данные."""
     root, path = Path(root).resolve(), Path(path).resolve()
     with ZipFile(path) as archive:
-        members = [i for i in archive.infolist() if not i.is_dir()]
-        names = [i.filename for i in members]
-        if len(names) != len(set(names)):
-            raise ValueError("Повтор имени в ZIP")
-        if sum(i.file_size for i in members) > 4 * 1024**3:
-            raise ValueError("ZIP превышает предел распаковки 4 ГиБ")
-        index_bytes = archive.read(INDEX) if INDEX in names else (root / INDEX).read_bytes()
-        index = json.loads(index_bytes.decode("utf-8-sig"))
-        expected = {}
-        for record in index["files"]:
-            safe_relative(record["path"])
-            if record["path"] in expected:
-                raise ValueError("Повтор пути во внутреннем манифесте")
-            expected[record["path"]] = record
-        for item in members:
-            safe_relative(item.filename)
-            if (item.external_attr >> 16) & 0o170000 == 0o120000:
-                raise ValueError("Символическая ссылка в ZIP")
-            if item.filename == INDEX:
-                continue  # Сам манифест не содержит собственного хеша.
-            record = expected.get(item.filename)
-            if record is None or record["bytes"] != item.file_size:
-                raise ValueError("Неполный манифест/размер: " + item.filename)
-            with archive.open(item) as stream:
-                if stream_sha(stream) != record["sha256"]:
-                    raise ValueError("SHA-256 вложения не совпадает: " + item.filename)
+        members, index_bytes, expected = validate_archive(root, archive)
         # Проверки не меняют рабочие файлы при повреждённом входном ZIP.
         archive_sha = file_sha(path)
         stored = root / "data/raw/team_bundles" / archive_sha[:16]
@@ -294,7 +321,10 @@ def rebuild_processed(root, archive_path, *, raw_root=None, source_kind=None, en
         from pipeline.bundle_sources import snapshot_parts
         archive_path = snapshot_parts(root, archive_path, raw_root)
         source_kind = "directory_snapshot"
-    elif raw_root is not None:
+    # До установки raw и processed проверяются также полнота и хеши исходных выходов.
+    with ZipFile(archive_path) as archive:
+        validate_archive(root, archive, require_processed=True)
+    if raw_root is not None and source_kind != "directory_snapshot":
         from pipeline.bundle_sources import install_raw_part
         with ZipFile(archive_path) as archive:
             install_raw_part(root, raw_root, archive.read(INDEX))
@@ -304,8 +334,7 @@ def rebuild_processed(root, archive_path, *, raw_root=None, source_kind=None, en
     with ZipFile(stored) as archive:
         upstream_bytes = archive.read("data/processed/build_manifest.json")
         upstream = json.loads(upstream_bytes)
-        inputs = {p: sha for p, sha in upstream["outputs"].items()
-                  if p in archive.namelist() and p.startswith("data/processed/")}
+        inputs = processed_outputs(archive, required=True)
         code = {"pipeline/" + p.name: file_sha(p) for p in sorted((ROOT / "pipeline").iterdir())
                 if p.suffix in {".py", ".json", ".toml"}}
         fingerprint = {"build_scope": "provided_processed", "verification_scope": "provided_tables",
@@ -424,8 +453,10 @@ def verify_processed(root, manifest):
     with ZipFile(original) as archive:
         upstream_bytes = archive.read("data/processed/build_manifest.json")
         upstream = json.loads(upstream_bytes)
-        expected_tables = {p: sha for p, sha in upstream["outputs"].items()
-                           if p in archive.namelist() and p.startswith("data/processed/")}
+        try:
+            expected_tables = processed_outputs(archive, required=True)
+        except ValueError as error:
+            return errors + [str(error)]
         if manifest["processed_inputs"] != expected_tables:
             errors.append("Подменён состав предоставленных входных таблиц")
         if (digest(upstream_bytes) != manifest["source_manifest_sha256"]
@@ -438,6 +469,9 @@ def verify_processed(root, manifest):
                 errors.append("Подмена входной таблицы: " + relative)
                 continue
             if not relative.endswith(".csv"):
+                path = (root / relative).resolve()
+                if not path.is_relative_to(root.resolve()) or not path.is_file() or file_sha(path) != expected:
+                    errors.append("Изменён неизменяемый файл предоставленного комплекта: " + relative)
                 continue
             with archive.open(relative) as raw, io.TextIOWrapper(raw, encoding="utf-8-sig", newline="") as original_csv, (root / relative).open(encoding="utf-8-sig", newline="") as cleaned:
                 before, after = csv.DictReader(original_csv), csv.DictReader(cleaned)

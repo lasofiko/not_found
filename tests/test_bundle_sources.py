@@ -58,14 +58,18 @@ class DirectoryTests(unittest.TestCase):
             self.assertEqual(receipt["missing_files"], ["data/raw/test/original.txt"])
 
     def test_corrupt_raw_or_missing_required_table_prevents_any_install(self):
-        for failure in ("raw", "table"):
+        for failure in ("raw", "table", "misplaced_table"):
             with self.subTest(failure=failure), TemporaryDirectory() as temp:
                 root = Path(temp)
                 first, second = self.fixture(root)
                 if failure == "raw":
                     (second / "data/raw/test/original.txt").write_bytes(b"changed")
-                else:
+                elif failure == "table":
                     (first / "data/processed/test.csv").unlink()
+                else:
+                    misplaced = second / "data/processed/test.csv"
+                    misplaced.parent.mkdir(parents=True)
+                    (first / "data/processed/test.csv").replace(misplaced)
                 with self.assertRaises(ValueError):
                     snapshot_parts(root / "work", first, second)
                 self.assertFalse((root / "work").exists())

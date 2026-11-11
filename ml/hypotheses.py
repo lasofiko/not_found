@@ -24,7 +24,7 @@ from ml.research_inputs import (
     reserve_gain_by_year,
     wagon_share,
 )
-from pipeline.common import ROOT, write_csv
+from pipeline.common import ROOT, digest, write_csv
 
 FLEET_PATH = Path(__file__).with_name("inputs") / "ferry_fleet_monthly.csv"
 OUTPUT_DIR = "reports/generated/ml-hypotheses"
@@ -225,15 +225,30 @@ def _terminal_peak(rows: list[dict]) -> tuple[float, str]:
     return best
 
 
-def _line_comparison(root: Path) -> dict | None:
-    folders = sorted(
-        (root / "reports/generated/ml-line-research").glob("*/metrics.json"), key=lambda p: p.stat().st_mtime
-    )
-    if not folders:
-        return None
+def _line_comparison(root: Path) -> tuple[dict | None, dict | None]:
+    research = root / "reports/generated/ml-line-research"
+    pointer_path = research / "latest.json"
+    if not pointer_path.is_file():
+        return None, None
     import json
 
-    return json.loads(folders[-1].read_text(encoding="utf-8"))["metrics"]["2015"]
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    report = (root / pointer["report_path"]).resolve()
+    if not report.is_relative_to(research) or report.parent == research:
+        raise ValueError("Указатель исследования линии выходит за каталог версий")
+    manifest = json.loads((report.parent / "run_manifest.json").read_text(encoding="utf-8"))
+    if manifest["report_version"] != pointer["report_version"] or report.parent.name != pointer["report_version"]:
+        raise ValueError("Версия исследования линии не соответствует манифесту")
+    path = report.parent / "metrics.json"
+    body = path.read_bytes()
+    if digest(body) != manifest["outputs"]["metrics.json"]:
+        raise ValueError("Метрики исследования линии не прошли проверку SHA-256")
+    metrics = json.loads(body)
+    if metrics["data_version"] != manifest["data_version"]:
+        raise ValueError("Версия данных исследования линии не соответствует манифесту")
+    return metrics["metrics"]["2015"], {"report_version": pointer["report_version"],
+        "metrics_path": path.relative_to(root).as_posix(), "metrics_sha256": digest(body),
+        "data_version": metrics["data_version"]}
 
 
 def results(
@@ -514,12 +529,13 @@ def run_hypotheses(root: Path = ROOT) -> dict:
         raise ValueError("Нет месяцев с 3–4 паромами для расчёта.")
     regression = regressions(panel)
     candidate = _read(processed / "candidate_observations.csv")
+    line_comparison, line_research = _line_comparison(root)
     outcome = results(
         panel,
         regression,
         candidate,
         _read(processed / "port_cabotage_monthly.csv"),
-        _line_comparison(root),
+        line_comparison,
     )
     facts, repairs = load_facts(), load_repairs()
     main = next(r for r in regression if r["sample"] == "main_3_4_ferries" and r["model"] == "ferries_plus_wind")
@@ -555,10 +571,11 @@ def run_hypotheses(root: Path = ROOT) -> dict:
             turnaround_gain(*CENTRAL_TURNAROUND),
             {d: rail_share[d]["share"] for d in directions} if all(d in rail_share for d in directions) else None,
         )
-    version, _ = fingerprint(
+    version, inputs = fingerprint(
         "bb-hyp-",
         {
             "data_version": data_version,
+            "line_research": line_research,
             "fleet": fleet,
             "panel": panel,
             "rail_share": rail_share,
@@ -579,7 +596,8 @@ def run_hypotheses(root: Path = ROOT) -> dict:
         report_text(version, data_version, panel, regression, outcome, scenarios, facts), encoding="utf-8"
     )
     finish_manifest(
-        output, {"report_version": version, "data_version": data_version, "status": "indirect_estimates_only"}
+        output, {"report_version": version, "data_version": data_version, "status": "indirect_estimates_only",
+                 "line_research": line_research, "fingerprint": inputs}
     )
     return {"output_dir": output, "version": version, "months": len(panel)}
 

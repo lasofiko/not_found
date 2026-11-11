@@ -216,6 +216,46 @@ class BuildTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build(root)
 
+    def test_missing_line_or_cabotage_keeps_reconciliation_incomplete(self):
+        for value in ("123", "45", "900"):
+            with self.subTest(value=value), TemporaryDirectory() as name:
+                root = Path(name)
+                artifacts = make_registry(root)
+                original = next(a for a in artifacts if a["source_key"] == "rosmorport_freight")
+                payload = freight_fixture().replace(f"<td>{value}</td>", "<td>–</td>", 1).encode()
+                changed = register(root, original, payload, original["url"], "text/html", "utf-8")
+                artifacts = [changed if a == original else a for a in artifacts]
+                write_json(root / "data/source_registry.json", {"schema_version": "0.2", "artifacts": artifacts})
+                build(root)
+                self.assertEqual(verify(root), [])
+                with (root / "data/interim/reconciliation.csv").open(encoding="utf-8-sig") as stream:
+                    row = next(csv.DictReader(stream))
+                self.assertEqual(row["check_status"], "incomplete")
+                self.assertEqual(row["difference_tonnes"], "")
+                self.assertEqual(row["line_sum_tonnes"], "168" if value == "900" else "")
+                self.assertEqual(row["terminal_cabotage_tonnes"], "" if value == "900" else "900")
+                log = json.loads((root / "data/processed/transformation_log.json").read_text())
+                self.assertEqual(log["reconciliation_incomplete"], 1)
+                quality = json.loads((root / "data/processed/target-quality.json").read_text())
+                self.assertEqual(quality["line_terminal_incomplete_years"], ["2015"])
+                self.assertIn("нет данных", (root / "docs/data-quality-report.md").read_text())
+
+    def test_zero_mass_is_valid_for_reconciliation(self):
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            artifacts = make_registry(root)
+            original = next(a for a in artifacts if a["source_key"] == "rosmorport_freight")
+            payload = freight_fixture().replace("<td>123</td>", "<td>0</td>", 1).encode()
+            changed = register(root, original, payload, original["url"], "text/html", "utf-8")
+            write_json(root / "data/source_registry.json", {
+                "schema_version": "0.2", "artifacts": [changed if a == original else a for a in artifacts]})
+            build(root)
+            with (root / "data/interim/reconciliation.csv").open(encoding="utf-8-sig") as stream:
+                row = next(csv.DictReader(stream))
+            self.assertEqual((row["line_sum_tonnes"], row["difference_tonnes"], row["check_status"]),
+                             ("45", "855", "mismatch"))
+            self.assertEqual(verify(root), [])
+
     def test_output_tampering_is_detected(self):
         with TemporaryDirectory() as name:
             root = Path(name)

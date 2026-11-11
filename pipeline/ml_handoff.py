@@ -166,6 +166,28 @@ def build(root=ROOT, limit=PART_BYTES):
         assets[path.relative_to(target).as_posix()] = digest(path)
     reader = root / "pipeline/ml_handoff.py"
     readme = target / "README.md"
+    readme.write_text(
+        "# Локальная передача таблиц для ML\n\n"
+        "Таблицы Калининграда, Камчатки и Приморья перечислены в inventory.csv; "
+        "manifest.json хранит исходные размеры, строки, части и SHA-256.\n\n"
+        f"Лимит части: {limit} байт. Части разделены между CSV-записями; "
+        "большие таблицы восстанавливаются побайтово.\n\n"
+        "Версии входов:\n"
+        + "".join(f"- {group}: {version}\n" for group, version in sorted(versions.items()))
+        + "\nИз корня репозитория:\n\n"
+        "```bash\npython -m pipeline.ml_handoff --verify\n"
+        "python -m pipeline.ml_handoff --restore /path/to/recipient\n```\n\n"
+        "Восстановление сохраняет исходные пути data/processed/ и отклоняет "
+        "существующие отличающиеся файлы. Происхождение находится в provenance/, "
+        "контракты и ограничения — в guides/. Оригиналы raw не включены.\n\n"
+        "Тонны, т·км и торговая стоимость — разные показатели. Не складывайте "
+        "итоги с подгруппами, накопления с месяцами и разные издания. "
+        "Экспорт/импорт не подтверждают направления внутреннего коридора. "
+        "Факт, оценка, прогноз и сценарий различаются. Предметная приёмка "
+        "и выбор целевых рядов остаются за командой; human_review: pending.\n\n"
+        "Комплект предназначен для локальной передачи и исключён из Git.\n",
+        encoding="utf-8",
+    )
     manifest = dict(
         schema_version="1.0",
         part_limit_bytes=limit,
@@ -181,6 +203,9 @@ def build(root=ROOT, limit=PART_BYTES):
         {
             "inputs": [(d["name"], d["original_sha256"]) for d in datasets],
             "reader": manifest["reader_sha256"],
+            "readme": manifest["readme_sha256"],
+            "assets": assets,
+            "input_versions": versions,
             "limit": limit,
         },
         sort_keys=True,

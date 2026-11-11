@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 
+from ml.blind_binding import verify_blind_binding
 from pipeline.common import ROOT, digest, write_csv, write_json
 from pipeline.port_protocol import TARGETS
 
@@ -54,6 +55,45 @@ def fmt(value):
     return "—" if value is None else f"{value:,.2f}".replace(",", " ").replace(".", ",")
 
 
+def comparison_pairs(blind):
+    pairs = {}
+    for row in blind["comparisons"]:
+        pair = pairs.setdefault(row["period"], {})
+        if row["method_role"] in pair:
+            raise ValueError("Повтор сравнения слепой проверки")
+        pair[row["method_role"]] = row
+    if set(pairs) != {"2026-01..2026-08", "2026-09"} or any(
+            set(pair) != {"selected", "naive"} for pair in pairs.values()):
+        raise ValueError("Неполный набор сравнений слепой проверки")
+    return pairs
+
+
+def baseline_verdict(pairs):
+    outcomes = []
+    for pair in pairs.values():
+        selected, naive = pair["selected"]["absolute_error_tonnes"], pair["naive"]["absolute_error_tonnes"]
+        outcomes.append(None if selected is None or naive is None else (selected > naive) - (selected < naive))
+    if None in outcomes:
+        return "Часть ошибок отсутствует; сравнение с naive не завершено."
+    if all(value < 0 for value in outcomes):
+        return "Ошибки меньше naive в обоих имеющихся сравнениях."
+    if all(value > 0 for value in outcomes):
+        return "Ошибки больше naive в обоих имеющихся сравнениях."
+    if all(value == 0 for value in outcomes):
+        return "Ошибки равны naive в обоих имеющихся сравнениях."
+    return "Результат смешанный: соотношение с naive зависит от периода."
+
+
+def optional_number(row, key):
+    value = row.get(key)
+    if value is None or value == "":
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("Неконечное значение сценария: " + key)
+    return number
+
+
 def export_jury(root, hypotheses_dir):
     root = Path(root).resolve()
     hypotheses_dir = Path(hypotheses_dir).resolve()
@@ -75,16 +115,16 @@ def export_jury(root, hypotheses_dir):
     for target in TARGETS:
         model, pointer = artifact(root, root / "models/port" / target / "latest.json")
         blind = read_json(root / "reports/generated/ml-port/blind_checks" / (target + ".json"))
-        if model["target_id"] != target or blind["status"] != "completed" or blind["selection_changed"]:
-            raise ValueError("Нет завершённой фиксированной проверки: " + target)
-        ports.append((target, model, pointer, blind))
+        binding = verify_blind_binding(root, target, model, pointer, blind)
+        pairs = comparison_pairs(blind)
+        ports.append((target, model, pointer, binding, pairs))
     metrics, blind_metrics, cards = [], [], {}
     evidence = {"hypothesis_version": hypotheses_dir.name, "hypothesis_data_version": hypothesis_manifest["data_version"],
                 "annual_model": annual["model_version"], "annual_data_version": annual["data_version"],
                 "annual_model_sha256": annual_pointer["sha256"], "review": review, "monthly_models": {}}
-    for target, model, pointer, blind in ports:
-        evidence["monthly_models"][target] = {"model_version": model["model_version"],
-            "data_version": model["data_version"], "sha256": pointer["sha256"], "selection_lock": blind["selection_lock"]}
+    port_summaries = []
+    for target, model, pointer, binding, pairs in ports:
+        evidence["monthly_models"][target] = {**binding, "sha256": pointer["sha256"]}
         for method, stages in model["metrics"].items():
             for stage, period in (("development", "2024-07..2025-06"), ("holdout", "2025-07..2025-12")):
                 for horizon in ("1", "3"):
@@ -101,20 +141,19 @@ def export_jury(root, hypotheses_dir):
             "Горизонт: 2026; продолжение до 2030 экспериментально. Окно выбора: июль 2024 — июнь 2025; "
             "проверка: июль — декабрь 2025. Горизонты временной проверки 1 и 3 месяца.", "",
             "| Сравнение 2026 | Ошибка выбранного, % | Ошибка naive, % |", "|---|---:|---:|"]
-        outcomes = []
         for period in ("2026-01..2026-08", "2026-09"):
-            pair = {r["method_role"]: r for r in blind["comparisons"] if r["period"] == period}
+            pair = pairs[period]
             selected, baseline = pair["selected"], pair["naive"]
-            outcomes.append(selected["absolute_error_tonnes"] < baseline["absolute_error_tonnes"])
             lines.append(f"| {period} | {fmt(selected['absolute_percentage_error'])} | {fmt(baseline['absolute_percentage_error'])} |")
             for role, row in pair.items():
                 blind_metrics.append({"target_id": target, "period": period, "method_role": role, "model_id": row["model_id"],
                     "absolute_error_tonnes": row["absolute_error_tonnes"], "absolute_percentage_error": row["absolute_percentage_error"],
-                    "reference_status": row["actual_status"], "result_status": "evaluation_metric", "model_version": model["model_version"]})
-        verdict = ("Ошибки меньше naive в обоих имеющихся сравнениях; двух сравнений недостаточно для устойчивого вывода."
-                   if all(outcomes) else "Ошибки больше naive в обоих сравнениях." if not any(outcomes)
-                   else "Результат смешанный: преимущество зависит от сравниваемого периода.")
-        lines += ["", verdict, "", "**Устойчивое преимущество выбранных методов над naive на проверке 2026 не подтверждено.**",
+                    "reference_status": row["actual_status"], "result_status": "evaluation_metric", **binding})
+        verdict = baseline_verdict(pairs)
+        port_summaries.append(f"| {ROLES[target]} | {model['port']}, {model['cargo_group']}; т/месяц | "
+            f"2026, до 2030 экспериментально | APE суммы января–августа: "
+            f"{fmt(pairs['2026-01..2026-08']['selected']['absolute_percentage_error'])}%; {verdict} |")
+        lines += ["", verdict, "", "**Двух сравнений недостаточно для вывода об устойчивом преимуществе над naive.**",
             "Это сумма восьми месяцев и один месяц, не большая независимая выборка. Сентябрь ранее сверялся при ETL. "
             "Для калининградского итога окно 2025 уже просматривалось; связанные группы также имеют ограничения независимости.", "",
             "Интервалы 80/95% условные, их покрытие не подтверждено. Спрос, общий грузопоток области и направления порта не прогнозируются.",
@@ -127,6 +166,7 @@ def export_jury(root, hypotheses_dir):
         "История 2015–2023: 9 годовых наблюдений на направление. Горизонт до 2030; проверен только шаг один год вперёд. "
         "Выбор 2020–2021, проверка 2022–2023: по два проверочных наблюдения на направление.", "",
         "| Направление | Метод | MAE проверки, т/год | WAPE, % | MAE naive, т/год |", "|---|---|---:|---:|---:|"]
+    annual_summary = []
     for direction, series in annual["directions"].items():
         chosen = series["state"]["model_id"]
         for method, stages in annual["metrics"][direction].items():
@@ -139,36 +179,49 @@ def export_jury(root, hypotheses_dir):
                     "model_version": annual["model_version"]})
         m, naive = annual["metrics"][direction][chosen]["holdout"], annual["metrics"][direction]["naive"]["holdout"]
         annual_lines.append(f"| {direction} | {chosen} | {fmt(m['MAE'])} | {fmt(m['WAPE'])} | {fmt(naive['MAE'])} |")
-    annual_lines += ["", "WAPE около 24% и 50% — ошибка на двух годах проверки, не гарантия точности до 2030 "
+        annual_summary.append(f"{direction}: WAPE {fmt(m['WAPE'])}%, n={m['observations']}")
+    annual_lines += ["", "WAPE в таблице — ошибка на сохранённом окне проверки, не гарантия точности до 2030 "
         "и не верхняя граница ошибки каждого года. Последний факт — 2023. Линия не покрывает весь коридор.", "", REVIEW, ""]
     cards["annual-line.md"] = "\n".join(annual_lines)
     selected = {r["action"]: r for r in scenarios if r["year"] == "2027" and r["direction"] == "inbound" and r["demand_case"] == "demand_x1_5"}
     if set(selected) != {"none", "reserve_ferry", "port_turnaround", "both"}:
         raise ValueError("Нет полного сравнения действий за 2027")
-    base = float(selected["none"]["shortfall_action_tonnes"])
+    base = optional_number(selected["none"], "shortfall_action_tonnes")
     scenario_lines = ["# Действия А и Б: сценарное сравнение", "",
         f"Версия расчёта `{hypotheses_dir.name}`. Наблюдённый дефицит и причинный эффект действий не измерены.", "",
-        "А — резервный паром на время ремонтов. Ориентир: около 28 тыс. т на паром в месяц, косвенная регрессионная оценка. "
-        "Б — постоянный дополнительный паром; его эффект не подтверждён. Отдельное действие — сокращение портовой части оборота: чувствительность к вводу, около 6,1% дополнительных рейсов (2,2–13,1%). "
+        "А — резервный паром на время ремонтов. Б — постоянный дополнительный паром; его эффект не подтверждён. "
+        "Отдельное действие — сокращение портовой части оборота: чувствительность к вводу. "
         "CAPEX/OPEX и экономическая окупаемость не подтверждены.", "",
-        "2027, ввоз, сценарная нагрузка ×1,5 от годового прогноза; тонны за год:", "",
-        "| Действие | Непокрытая нагрузка, т/год | Сокращение относительно базы, т/год |", "|---|---:|---:|"]
+        "2027, ввоз, набор допущений `demand_x1_5`; тонны за год:", "",
+        "| Действие | Непокрытая нагрузка | Сокращение относительно базы | С учётом ж/д предела | Резерв, % | Ж/д предел |",
+        "|---|---:|---:|---:|---:|---|"]
+    basis_notes = []
     for action, label in (("none", "Без действия"), ("reserve_ferry", "А"), ("port_turnaround", "Портовый оборот"), ("both", "А + портовый оборот")):
         row = selected[action]
-        deficit = float(row["shortfall_action_tonnes"])
-        if not math.isclose(float(row["capacity_action_tonnes"]), float(row["capacity_rail_limited_tonnes"]), rel_tol=1e-10):
-            raise ValueError("Изменилось условие ж/д предела: требуется новая сводка")
-        scenario_lines.append(f"| {label} | {fmt(deficit)} | {fmt(base - deficit)} |")
-    ambal = next(r for r in hypotheses if r["indicator"].startswith("Потенциал на ремонт «Амбала»"))
-    repairs = next(r for r in hypotheses if r["indicator"].startswith("Потенциал на все ремонты"))
-    headroom = next(r for r in hypotheses if r["indicator"].startswith("Запас ж/д части до предела по грузу в вагонах"))
-    scenario_lines += ["", "Резерв 2027: около 3,2%; ж/д предел в этом примере не срабатывает. Доля вагонов — косвенная оценка по нескольким месяцам одного оператора.", "",
-        f"Наш календарь: «Амбал» 73 дня, условная оценка {fmt(float(ambal['central']))} т; "
-        f"все ремонты 2026 — {fmt(float(repairs['central']))} т, около 112 тыс. т. «Балтийск» 82 дня по плану; возврат на дату отчёта не факт.", "",
-        f"Косвенная оценка запаса ж/д части по вагонной массе: {fmt(float(headroom['central']))} т/год. Это не доступная мощность всей цепочки.", "",
-        "Контейнеризация и замещение транзита морем — дополнительные расчёты, не основные действия. "
-        "Замещение транзита: три отдельные центральные оценки 10,25 / 11,23 / 15,75 парома-эквивалента "
-        "за восемь месяцев 2026, 2025 и 2024 соответственно; это не один интервал неопределённости.", "", REVIEW, ""]
+        deficit = optional_number(row, "shortfall_action_tonnes")
+        capacity = optional_number(row, "capacity_action_tonnes")
+        limited = optional_number(row, "capacity_rail_limited_tonnes")
+        reserve = optional_number(row, "reserve_gain_share")
+        rail_note = ("не оценен" if limited is None or capacity is None else
+                     "ограничивает" if limited < capacity and not math.isclose(limited, capacity, rel_tol=1e-10)
+                     else "не ограничивает")
+        reduction = None if base is None or deficit is None else base - deficit
+        scenario_lines.append(f"| {label} | {fmt(deficit)} | {fmt(reduction)} | "
+            f"{fmt(optional_number(row, 'shortfall_rail_limited_tonnes'))} | "
+            f"{fmt(None if reserve is None else 100 * reserve)} | {rail_note} |")
+        if row.get("reserve_gain_basis"):
+            basis_notes += ["", f"Основа резерва ({label}): {row['reserve_gain_basis']}."]
+    scenario_lines += [*basis_notes, "", "Доля вагонов — косвенная оценка по нескольким месяцам одного оператора. "
+        "Прочерк означает отсутствие оценки; запас ж/д части не является доступной мощностью всей цепочки.", "",
+        "## Сохранённые исследовательские оценки", "",
+        "| Показатель | Низ | Центр | Верх | Единица | Статус | Основа | Ограничение |",
+        "|---|---:|---:|---:|---|---|---|---|"]
+    for row in hypotheses:
+        scenario_lines.append(f"| {row['indicator']} | {fmt(optional_number(row, 'low'))} | "
+            f"{fmt(optional_number(row, 'central'))} | {fmt(optional_number(row, 'high'))} | "
+            f"{row.get('unit', '')} | {row.get('status', '')} | {row.get('evidence', '')} | {row.get('main_limitation', '')} |")
+    scenario_lines += ["", "Контейнеризация и замещение транзита морем — дополнительные расчёты, не основные действия. "
+        "Оценки замещения относятся к отдельным периодам; это не один интервал неопределённости.", "", REVIEW, ""]
     output = root / "docs/jury"
     output.mkdir(parents=True, exist_ok=True)
     for name, content in cards.items():
@@ -180,15 +233,12 @@ def export_jury(root, hypotheses_dir):
     landing = ["# Not Found / FloCast: материалы для жюри", "",
         "## Что прогнозируем", "",
         "| Роль | Показатель | Горизонт | Проверка |", "|---|---|---|---|",
-        "| Основная | Калининград, грузы на паромах, каботаж порта; т/месяц | 2026, до 2030 экспериментально | Ошибка суммы января–августа 3,7% |",
-        "| Вторая | Калининград, контейнеры, каботаж порта; т/месяц | То же | Ошибка суммы января–августа 8,1% |",
-        "| Дополнение | Годовая линия Усть-Луга — Балтийск, ввоз/вывоз | До 2030 | Шаг один год; WAPE около 24% / 50% на двух годах |",
-        "| Перенос | Каботаж Петропавловска-Камчатского и Владивостока | 2026 | Процедура работает, устойчивого преимущества над naive нет |", "",
+        *port_summaries,
+        "| Дополнение | Годовая линия Усть-Луга — Балтийск, ввоз/вывоз | До 2030 | " + "; ".join(annual_summary) + " |", "",
         "Не прогнозируются весь грузопоток области, спрос и направления портового каботажа. "
         "Факт, прогноз и сценарный эффект разделены. Месячные цели имеют статус estimated.", "",
-        "**На проверке 2026 устойчивое преимущество выбранных методов над naive не подтверждено.** "
-        "Для паромов и контейнеров Калининграда ошибки в двух сравнениях немного меньше; "
-        "это не доказательство устойчивого выигрыша. Для переноса результаты смешанные или хуже baseline.", "",
+        "**Двух сравнений 2026 недостаточно для вывода об устойчивом преимуществе над naive.** "
+        "Соотношение ошибок по каждой цели показано в таблице и карточках.", "",
         "[Причина излома Петропавловска в 2025: СПГ и появление оператора](petropavlovsk-audit.md).", "",
         "## Карточки и проверяемые метрики", ""]
     landing += [f"- [{name.removesuffix('.md')}]({name})." for name in cards]

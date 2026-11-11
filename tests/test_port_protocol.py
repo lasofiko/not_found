@@ -1,20 +1,23 @@
 """Проверки нового протокола без использования закрытых значений 2026 года."""
+import json
+import unittest
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
-import json
 from unittest.mock import patch
 
-from ml.port_evaluation import evaluate_port, load_port_protocol, PROTOCOL
+from test_port_ml import monthly_fixture
+from test_supplemental import port_fixture
+
+from ml.port_evaluation import PROTOCOL, evaluate_port, load_port_protocol
 from ml.port_models import MODEL_IDS, fit_port_model, forecast_values
 from ml.port_run import blind_check
 from pipeline.common import write_csv
 from pipeline.model_inputs import month_index, month_period
-from pipeline.port_protocol import derive_versions, series_asof, load_blind_cumulatives
-from test_supplemental import port_fixture
-from test_port_ml import monthly_fixture
+from pipeline.port_protocol import derive_versions, load_blind_cumulatives, series_asof
+
+BINDING = {"model_version": "synthetic-model", "data_version": "synthetic", "model_sha256": "a" * 64}
 
 
 def cumulative_fixture():
@@ -75,14 +78,19 @@ class ProtocolTests(unittest.TestCase):
                         {**base, "period": "2026-09", "value": "900", "source_id": "sep"}], {
                     "raw_source_validation": "performed_for_target_cells", "source_artifacts": []}
             with patch("pipeline.port_protocol.load_blind_cumulatives", side_effect=closed_values) as loader:
-                first = blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol())
-                second = blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol())
+                first = blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol(), **BINDING)
+                second = blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol(), **BINDING)
                 self.assertEqual(first, second)
+                self.assertEqual(loader.call_count, 1)
+                self.assertEqual({key: first[key] for key in BINDING}, BINDING)
+                with self.assertRaisesRegex(ValueError, "другой версией"):
+                    blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol(),
+                                **{**BINDING, "model_version": "new-model"})
                 self.assertEqual(loader.call_count, 1)
             self.assertIsNone(first["provided_september_difference_matches"])
             destination.write_text(json.dumps({"selection_lock": first["selection_lock"], "status": "started"}))
             with self.assertRaisesRegex(ValueError, "не завершена"):
-                blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol())
+                blind_check(root, "vladivostok_total", state, state, monthly_fixture(), load_port_protocol(), **BINDING)
 
     def test_rules_are_frozen_and_ridge_is_not_a_candidate(self):
         self.assertEqual(load_port_protocol(), PROTOCOL)
@@ -161,16 +169,16 @@ class ProtocolTests(unittest.TestCase):
             write_csv(root / 'data/processed/port_cabotage_cumulative.csv', fields, cumulative)
             write_csv(root / 'data/processed/port_cabotage_monthly.csv', fields + ['previous_source_id'],
                       [{**cumulative[1], 'value': '200', 'previous_source_id': 'aug'}])
-            first = blind_check(root, 'kaliningrad_ferries', state, state, rows, load_port_protocol())
+            first = blind_check(root, 'kaliningrad_ferries', state, state, rows, load_port_protocol(), **BINDING)
             self.assertEqual(first['comparisons'][0]['predicted_tonnes'], 800)
             self.assertEqual(first['comparisons'][1]['predicted_tonnes'], 100)
             self.assertTrue(first['provided_september_difference_matches'])
             # Изменение уже просмотренного факта не запускает новое сравнение.
             cumulative[0]['value'] = '999999'
             write_csv(root / 'data/processed/port_cabotage_cumulative.csv', fields, cumulative)
-            self.assertEqual(blind_check(root, 'kaliningrad_ferries', state, state, rows, load_port_protocol()), first)
+            self.assertEqual(blind_check(root, 'kaliningrad_ferries', state, state, rows, load_port_protocol(), **BINDING), first)
             with self.assertRaisesRegex(ValueError, 'уже просмотрена'):
-                blind_check(root, 'kaliningrad_ferries', fit_port_model('naive', [110.] * 43), state, rows, load_port_protocol())
+                blind_check(root, 'kaliningrad_ferries', fit_port_model('naive', [110.] * 43), state, rows, load_port_protocol(), **BINDING)
 
 
 if __name__ == '__main__':
