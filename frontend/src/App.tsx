@@ -32,6 +32,7 @@ import { TransportGallery } from './TransportGallery'
 import { FilterSelect } from './FilterSelect'
 import { GeographyFilters } from './GeographyFilters'
 import { CapacityCalculator } from './CapacityCalculator'
+import { PortForecastPanel } from './PortForecastPanel'
 import { AssistantDialog } from './AssistantDialog'
 import { DecisionAssistant, DecisionWorkspace } from './DecisionWorkspace'
 import type { ComparisonSnapshot } from './comparison-api'
@@ -56,6 +57,7 @@ const navItems = [
   { id: 'transport', label: 'Транспорт', icon: Truck },
   { id: 'routes', label: 'Маршруты', icon: Route },
   { id: 'forecast', label: 'Прогноз', icon: ArrowUpRight },
+  { id: 'port-forecast', label: 'Прогноз портов', icon: BarChart3 },
   { id: 'scenarios', label: 'Сценарии', icon: Layers3 },
   { id: 'compare', label: 'Сравнить решения', icon: Layers3 },
   { id: 'capacity', label: 'Калькулятор', icon: Calculator },
@@ -573,6 +575,8 @@ export default function App() {
           </div>
           {forecastResult && <article className="panel forecast-table"><div className="panel-top"><h3>Значения прогноза</h3><span className="tag">т/год</span></div><div className="table-scroll"><table><thead><tr><th>Год</th><th>Прогноз, т</th><th>Нижняя 95%, т</th><th>Верхняя 95%, т</th></tr></thead><tbody>{forecastResult.predictions.map(point => <tr key={point.period}><td>{point.period}</td><td>{formatNumber(point.value)}</td><td>{formatNumber(point.interval['95'].lower)}</td><td>{formatNumber(point.interval['95'].upper)}</td></tr>)}</tbody></table></div></article>}
         </section>
+
+        <PortForecastPanel light={theme === 'light'} />
 
         <section className="section" id="scenarios" aria-labelledby="scenarios-title">
           <div className="section-heading"><div><p className="eyebrow">Сценарный анализ</p><h2 id="scenarios-title">Что, если изменить условия?</h2></div><span className="section-number">СЦЕНАРИИ</span></div>

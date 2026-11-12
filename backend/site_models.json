@@ -1,0 +1,51 @@
+{
+  "version": "site-models-final-2026-11-12",
+  "decided_by": "ML Lead (Петя), 12.11.2026: итоговое слияние двух вариантов; см. docs/decision-log.md",
+  "primary_target": "kaliningrad_ferries",
+  "evidence": {
+    "metrics": "docs/final/site-metrics.csv",
+    "blind_metrics": "docs/final/site-blind-metrics.csv"
+  },
+  "targets": [
+    {
+      "target_id": "kaliningrad_ferries",
+      "role": "Основная",
+      "title": "Порт Калининград · грузы на паромах",
+      "display": "primary",
+      "expected_model_version": "bb-ridge-d9c6acb34f45",
+      "note": "Основной прогноз сайта: Ridge AR(3) в логарифмах на реальных данных (окна сентябрь 2022 — декабрь 2025), без синтетики. Лучше naive и прежней SES на окне выбора, контроле 2025 и в 2026 году. Выбран после сравнения на 2026 году; следующая независимая проверка — октябрь–декабрь 2026."
+    },
+    {
+      "target_id": "kaliningrad_containers",
+      "role": "Вторая",
+      "title": "Порт Калининград · грузы в контейнерах",
+      "display": "shown",
+      "expected_model_version": "bb-port-c686b4cb47b0",
+      "note": "В 2026 году ошибка меньше naive; на проверке 2025 года — на уровне naive."
+    },
+    {
+      "target_id": "kaliningrad_total",
+      "role": "Справочная",
+      "title": "Порт Калининград · весь каботаж",
+      "display": "shown",
+      "expected_model_version": "bb-port-09047f079455",
+      "note": "SES вместо seasonal naive: метод изменён после слепой проверки 2026, чтобы показывать модель уровня ряда. На контроле 2025 — на уровне naive, в 2026 — чуть точнее naive."
+    },
+    {
+      "target_id": "vladivostok_total",
+      "role": "Перенос",
+      "title": "Порт Владивосток · весь каботаж",
+      "display": "shown_with_warning",
+      "expected_model_version": "bb-port-6329b8d38370",
+      "note": "Перенос метода на другой регион. На слепой проверке 2026 года выбранный метод ошибся сильнее naive."
+    },
+    {
+      "target_id": "petropavlovsk_total",
+      "role": "Перенос",
+      "title": "Порт Петропавловск-Камчатский · весь каботаж",
+      "display": "history_only",
+      "expected_model_version": "bb-port-6454be65293a",
+      "note": "С октября 2025 года в ряду появились сжиженный газ и новый оператор: режим сменился, модели его не предсказали. Прогноз не публикуется, показывается только история."
+    }
+  ]
+}

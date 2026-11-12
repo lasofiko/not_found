@@ -76,8 +76,9 @@ def test_damaged_model_is_an_error(client, provided_model):
 
 def test_registry_and_capacity(client):
     actions = {row["id"]: row for row in client.get("/api/v1/scenarios").json()}
-    assert actions["additional_ferry"]["label"] == "Б"
-    assert actions["port_turnaround"]["label"] is None
+    # Решение 12.11.2026: Б — сокращение портовой части оборота, В — постоянный дополнительный паром.
+    assert actions["port_turnaround"]["label"] == "Б"
+    assert actions["additional_ferry"]["label"] == "В"
     values = dict(
         period="2026-11",
         demand_tonnes=120,

@@ -37,7 +37,7 @@ select = ["E", "F", "I", "UP", "B"]
 include = ["backend*", "pipeline*", "ml*"]
 
 [tool.setuptools.package-data]
-backend = ["scenario_registry.json"]
+backend = ["scenario_registry.json", "site_models.json"]
 
 [tool.uv]
 required-version = "==0.13.7"

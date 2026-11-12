@@ -17,6 +17,7 @@ from backend.forecast_service import ForecastService
 from backend.frontend import FrontendFiles
 from backend.infrastructure.llm_client import OpenAILLMClient
 from backend.llm_policy import LLMPolicy, LLMPolicyError, policy_error_response
+from backend.port_forecast_service import PortForecastService
 from backend.redirects import legacy_dashboard_location
 from backend.synthetic_data import SyntheticError, SyntheticStore
 from backend.use_cases.llm import AskTransportAssistant
@@ -51,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.synthetic_store = SyntheticStore(config.synthetic_path)
     application.state.llm_policy = LLMPolicy(config)
     application.state.forecast_service = ForecastService()
+    application.state.port_forecast_service = PortForecastService()
     application.state.comparison_store = ComparisonStore()
     application.state.decision_analysis = DecisionAnalysisWorkflow()
     application.state.llm_use_case = _build_llm_use_case(config, application.state.forecast_service)

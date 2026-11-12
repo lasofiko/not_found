@@ -38,6 +38,22 @@ def main() -> None:
     get_json(prefix + "/status")
     get_json(prefix + "/config")
     assert isinstance(get_json(prefix + "/scenarios"), list)
+    catalog = get_json(prefix + "/port-forecasts")
+    assert catalog["status"] == "ready" and catalog["primary_target"] == "kaliningrad_ferries"
+    targets = {row["target_id"]: row for row in catalog["targets"]}
+    primary = targets[catalog["primary_target"]]
+    if args.expect_no_model:
+        assert not any(row["model_connected"] for row in targets.values())
+        assert get_json(prefix + "/port-forecasts/kaliningrad_ferries", 503)["status"] == "not_connected"
+    elif primary["model_connected"]:
+        port = get_json(prefix + "/port-forecasts/kaliningrad_ferries")
+        assert port["model_version"] == primary["expected_model_version"]
+        assert port["selected_model"] == "ridge_ar3_10" and port["display"] == "primary"
+        assert len(port["predictions"]) == 12 and port["result_type"] == "forecast"
+        assert "provenance" in port and all(p["status"] == "forecast" for p in port["predictions"])
+        if targets["petropavlovsk_total"]["model_connected"]:
+            history = get_json(prefix + "/port-forecasts/petropavlovsk_total")
+            assert history["predictions"] == [] and history["result_type"] == "history"
     assert prefix + "/forecasts" in get_json("/openapi.json")["paths"]
     html, headers = request("/")
     assert "text/html" in headers.get("Content-Type", "")
@@ -69,7 +85,7 @@ def main() -> None:
         assert get_json(prefix + "/llm/summary", 503)["error"]["code"] == "LLM_NOT_CONFIGURED"
         result = get_json(prefix + "/llm/ask", 503, {"question": "Проверка доступности"})
         assert result["error"]["code"] == "LLM_NOT_CONFIGURED"
-    print("PASS: React assets, SPA, config, health, API contracts, capacity, optional-service failures")
+    print("PASS: React assets, SPA, config, health, ports, API contracts, capacity, optional-service failures")
 
 
 if __name__ == "__main__":

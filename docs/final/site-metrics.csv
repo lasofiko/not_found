@@ -1,0 +1,57 @@
+target_id,model_id,selected_model,period,stage,horizon,MAE_tonnes,WAPE_percent,observations,model_version,source
+kaliningrad_containers,drift,ses,2024-07..2025-06,development,1,16093.830986470304,14.120492201333892,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,drift,ses,2024-07..2025-06,development,3,22676.910883500565,19.89639033428433,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,drift,ses,2025-07..2025-12,holdout,1,13243.942344600267,8.918479693333513,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,drift,ses,2025-07..2025-12,holdout,3,13870.162907268214,9.340177041931458,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,naive,ses,2024-07..2025-06,development,1,13741.666666666666,12.056737588652481,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,naive,ses,2024-07..2025-06,development,3,14991.666666666666,13.15346932806902,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,naive,ses,2025-07..2025-12,holdout,1,17666.666666666697,11.896745230078583,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,naive,ses,2025-07..2025-12,holdout,3,21683.33333333336,14.601571268237954,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,seasonal_naive,ses,2024-07..2025-06,development,1,38208.333333333336,33.523433501498864,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,seasonal_naive,ses,2024-07..2025-06,development,3,38208.333333333336,33.523433501498864,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,seasonal_naive,ses,2025-07..2025-12,holdout,1,31600.0,21.27946127946128,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,seasonal_naive,ses,2025-07..2025-12,holdout,3,31600.0,21.27946127946128,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,ses,ses,2024-07..2025-06,development,1,12673.8447145115,11.119846207073044,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,ses,ses,2024-07..2025-06,development,3,14687.616204883636,12.886699894611658,12,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,ses,ses,2025-07..2025-12,holdout,1,17787.674481721268,11.978231974223077,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+kaliningrad_containers,ses,ses,2025-07..2025-12,holdout,3,21589.631240321134,14.538472215704468,6,bb-port-c686b4cb47b0,docs/jury/metrics.csv
+petropavlovsk_total,drift,ses,2024-07..2025-06,development,1,39857.627148334344,25.256504907759695,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,drift,ses,2024-07..2025-06,development,3,36437.836282579876,23.08949269544216,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,drift,ses,2025-07..2025-12,holdout,1,304719.7331119002,85.16049812411245,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,drift,ses,2025-07..2025-12,holdout,3,185450.50751879692,51.82814199916166,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,naive,ses,2024-07..2025-06,development,1,38380.333333333336,24.32039101543193,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,naive,ses,2024-07..2025-06,development,3,33380.333333333336,21.15205076103533,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,naive,ses,2025-07..2025-12,holdout,1,297555.8333333334,83.15839190203219,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,naive,ses,2025-07..2025-12,holdout,3,184836.49999999997,51.656544362150406,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,seasonal_naive,ses,2024-07..2025-06,development,1,23097.0,14.635830971159654,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,seasonal_naive,ses,2024-07..2025-06,development,3,23097.0,14.635830971159654,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,seasonal_naive,ses,2025-07..2025-12,holdout,1,206642.50000000003,57.75070112426751,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,seasonal_naive,ses,2025-07..2025-12,holdout,3,206642.50000000003,57.75070112426751,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,ses,ses,2024-07..2025-06,development,1,22786.28866460518,14.43894312487391,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,ses,ses,2024-07..2025-06,development,3,26438.409153955596,16.753175196937015,12,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,ses,ses,2025-07..2025-12,holdout,1,234468.1874217491,65.52718930008187,6,bb-port-6454be65293a,docs/jury/metrics.csv
+petropavlovsk_total,ses,ses,2025-07..2025-12,holdout,3,195213.62376242943,54.55665529254275,6,bb-port-6454be65293a,docs/jury/metrics.csv
+vladivostok_total,drift,ses,2024-07..2025-06,development,1,68606.47789598114,15.542653679275258,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,drift,ses,2024-07..2025-06,development,3,76802.66372102404,17.399482388114855,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,drift,ses,2025-07..2025-12,holdout,1,81575.19895913849,18.97297675393805,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,drift,ses,2025-07..2025-12,holdout,3,101905.51002506271,23.701454577784023,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,naive,ses,2024-07..2025-06,development,1,65908.91666666667,14.93152684035717,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,naive,ses,2024-07..2025-06,development,3,72399.41666666666,16.40193600286054,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,naive,ses,2025-07..2025-12,holdout,1,80871.33333333339,18.809269814492087,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,naive,ses,2025-07..2025-12,holdout,3,98387.33333333339,22.88318768490323,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,seasonal_naive,ses,2024-07..2025-06,development,1,77542.25000000001,17.567034108485863,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,seasonal_naive,ses,2024-07..2025-06,development,3,77542.25000000001,17.567034108485863,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,seasonal_naive,ses,2025-07..2025-12,holdout,1,77159.66666666669,17.946000508580756,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,seasonal_naive,ses,2025-07..2025-12,holdout,3,77159.66666666669,17.946000508580756,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,ses,ses,2024-07..2025-06,development,1,64705.551157449336,14.658906908057082,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,ses,ses,2024-07..2025-06,development,3,67771.22634129277,15.35342919132996,12,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,ses,ses,2025-07..2025-12,holdout,1,67879.99951273466,15.78771083914304,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+vladivostok_total,ses,ses,2025-07..2025-12,holdout,3,63079.796134724835,14.671266769533418,6,bb-port-6329b8d38370,docs/jury/metrics.csv
+kaliningrad_total,ses,ses,2024-07..2025-06,development,1,62358.07397120611,15.462308789861604,12,bb-port-09047f079455,artifact metrics (bb-port-07d3622c6b83)
+kaliningrad_total,ses,ses,2025-07..2025-12,holdout,1,44413.23966038379,10.332701353448025,6,bb-port-09047f079455,artifact metrics (bb-port-07d3622c6b83)
+kaliningrad_total,naive,ses,2024-07..2025-06,development,1,63275.833333333336,15.689876412597195,12,bb-port-09047f079455,artifact metrics (bb-port-07d3622c6b83)
+kaliningrad_total,naive,ses,2025-07..2025-12,holdout,1,43329.833333333336,10.080647819244037,6,bb-port-09047f079455,artifact metrics (bb-port-07d3622c6b83)
+kaliningrad_ferries,ridge_ar3_10,ridge_ar3_10,2024-07..2025-06,development,1,16075.418577051385,9.100624285844468,12,bb-ridge-d9c6acb34f45,flocast-comparison-2026-11-12 (original_only)
+kaliningrad_ferries,ridge_ar3_10,ridge_ar3_10,2025-07..2025-12,holdout,1,14759.481394103037,9.142111179722528,6,bb-ridge-d9c6acb34f45,flocast-comparison-2026-11-12 (original_only)
+kaliningrad_ferries,naive,ridge_ar3_10,2024-07..2025-06,development,1,20175.83333333334,11.421953210139222,12,bb-ridge-d9c6acb34f45,docs/jury/metrics.csv
+kaliningrad_ferries,naive,ridge_ar3_10,2025-07..2025-12,holdout,1,31926.666666666617,19.775568563081304,6,bb-ridge-d9c6acb34f45,docs/jury/metrics.csv

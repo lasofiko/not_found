@@ -10,7 +10,7 @@ function syntheticSnapshot(id = 'synthetic-decision-test-only') {
     variants: [
       { id: 'baseline', label: 'Без действия', name: 'Без действия', capacity_delta_tonnes: 0, scenario_capacity_tonnes: 100, scenario_shortfall_tonnes: 50, shortfall_reduction_tonnes: 0, scenario_spare_capacity_tonnes: 0, coverage_share: 2 / 3 },
       { id: 'reserve_ferry', label: 'А', name: 'Резервный паром на время ремонтов', capacity_delta_tonnes: 20, scenario_capacity_tonnes: 120, scenario_shortfall_tonnes: 30, shortfall_reduction_tonnes: 20, scenario_spare_capacity_tonnes: 0, coverage_share: .8 },
-      { id: 'additional_ferry', label: 'Б', name: 'Постоянный дополнительный паром', capacity_delta_tonnes: 70, scenario_capacity_tonnes: 170, scenario_shortfall_tonnes: 0, shortfall_reduction_tonnes: 50, scenario_spare_capacity_tonnes: 20, coverage_share: 1 },
+      { id: 'additional_ferry', label: 'В', name: 'Постоянный дополнительный паром', capacity_delta_tonnes: 70, scenario_capacity_tonnes: 170, scenario_shortfall_tonnes: 0, shortfall_reduction_tonnes: 50, scenario_spare_capacity_tonnes: 20, coverage_share: 1 },
     ].map(row => ({ ...row, demand_tonnes: 150, capacity_tonnes: 100, assumption_source: '<script>unsafe</script> Допущение пользователя', status: 'scenario' })),
     thresholds: { required_delta_tonnes: 50, grid: { demand_values: [0, 150, 300], delta_values: [0, 50, 100], shortfalls: [[0, 50, 200], [0, 0, 150], [0, 0, 100]], boundary_delta_tonnes: [0, 50, 200] } },
     passports: {}, sources: [], warnings: ['Синтетический пример; эффект действия не подтверждён.'], forecast_basis: null, direction_profile: null }
@@ -53,6 +53,7 @@ test('активный React: серверные числа, паспорт, к�
     throw new Error('Неожиданный адрес ' + url)
   }
   await page.render(h(DecisionWorkspace, { onSnapshotChange: value => { applied = value }, onOpenAssistant() {} }))
+  assert.match(page.container.querySelector('.decision-actions').textContent, /В · Постоянный дополнительный паром/)
   assert.equal(page.container.querySelector('[name="capacity_tonnes"]').value, '')
   fill(page)
   await act(async () => page.event(page.container.querySelector('form'), 'submit'))

@@ -1,5 +1,53 @@
 # Контракты v0.19
 
+## Итоговые месячные модели сайта (12.11.2026)
+
+Решение ML Lead из итогового архива заменяет прежние решения о показе моделей
+и буквах действий: А — резервный паром на ремонты, Б — сокращение портовой
+части оборота, В — постоянный дополнительный паром. Машинные ID сохраняются:
+`reserve_ferry`, `port_turnaround`, `additional_ferry`. Сравнение решений
+по-прежнему рассчитывает только резерв и дополнительный паром (А/В).
+Исторические разделы ниже и `docs/jury/` сохраняют прежние решения.
+
+Новые GET-маршруты используют фактический `BB_API_PREFIX`:
+
+- `/port-forecasts`: `status=ready`, `version`, `primary_target`, `targets`,
+  `warnings`. Для каждой цели: `target_id,title,role,display,note`, ожидаемая
+  версия модели, порт, группа, `unit=tonnes`, `granularity=month`,
+  `model_connected` и `quality`. Наличие указателя не означает проверки модели;
+  SHA-256 и схема проверяются при получении конкретного прогноза.
+- `/port-forecasts/{target_id}?end_period=2026-12`: `status=ready`,
+  `target_id,title,role,display,note,port,cargo_group`, единица и частота,
+  `selected_model,model_version,data_version,forecast_origin`, `history`,
+  `predictions`, `quality`, `warnings`. История содержит `period,value,status=estimated`;
+  прогноз — `period,value,interval` (80/95%), `experimental`.
+  Дополнительные поля происхождения: `result_type=forecast|history`,
+  `geography,direction,mode,metric,training_period,training_data_available_by`,
+  `generated_at,provenance`; каждая прогнозная точка имеет `status=forecast`.
+
+`display=primary|shown|shown_with_warning|history_only`; у `history_only`
+`predictions=[]`, `result_type=history`. Основная цель — `kaliningrad_ferries`,
+Ridge AR(3) `bb-ridge-d9c6acb34f45`, исходная история без синтетики.
+Полные зафиксированные версии пяти целей — в `backend/site_models.json`.
+Модели не переобучаются ни при запуске, ни при HTTP-запросе.
+
+`quality` содержит выбранный метод и версию, `selection`/`holdout`
+(`period,selected_WAPE,naive_WAPE`, у holdout также `observations`),
+два сравнения `blind_2026` (`period,selected_APE,naive_APE,reference_status`)
+и `blind_verdict`. WAPE/APE выражены в процентах. Название `blind_2026`
+сохраняет формат исходных метрик: для паромов и всего каботажа эти значения
+использованы при выборе и больше не являются независимой проверкой.
+Метрики читаются из `docs/final/site-metrics.csv` и `site-blind-metrics.csv`;
+версия должна совпадать с ожидаемой версией модели.
+
+Период — 2026-01…2030-12; после 2026-12 экстраполяция экспериментальная.
+Неизвестная цель: 404 `not_available`; нет указателя: 503 `not_connected`;
+повреждение, несовпадение версии или неполные метрики: 500 `error`;
+некорректный период: 422 `invalid_request`. Ошибки новых маршрутов содержат
+`status,message`. Портовая перевалка не назначается направлению или OD и
+не заменяет годовую направленную модель линии. Следующая независимая проверка
+октября–декабря 2026 выполняется по сохранённым прогнозам до переобучения.
+
 ## Отдельный синтетический контур v0.1 (12.11.2026)
 
 Эксперимент `python -m pipeline.synthetic --input "new data" --output DIRECTORY`
