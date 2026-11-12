@@ -54,9 +54,14 @@ def portable_model(client, tmp_path):
         write_json(path, value)
         sha = digest(path.read_bytes())
         path.with_suffix(".json.sha256").write_text(sha, encoding="utf-8")
-        write_json(tmp_path / "models/latest.json", {
-            "model_path": "models/synthetic-only.json", "model_version": value["model_version"], "sha256": sha,
-        })
+        write_json(
+            tmp_path / "models/latest.json",
+            {
+                "model_path": "models/synthetic-only.json",
+                "model_version": value["model_version"],
+                "sha256": sha,
+            },
+        )
 
     install(artifact)
     client.app.state.forecast_service = ForecastService(tmp_path)
@@ -90,18 +95,26 @@ def test_three_choices_threshold_and_passports_are_one_snapshot(client):
     assert stored.json() == snapshot
 
 
-@pytest.mark.parametrize("demand,capacity,delta,shortfall,spare", [
-    (0, 0, 0, 0, 0),
-    (0, 100, 20, 0, 120),
-    (100, 100, 0, 0, 0),
-    (80, 100, 20, 0, 40),
-    (150, 100, 20, 30, 0),
-])
+@pytest.mark.parametrize(
+    "demand,capacity,delta,shortfall,spare",
+    [
+        (0, 0, 0, 0, 0),
+        (0, 100, 20, 0, 120),
+        (100, 100, 0, 0, 0),
+        (80, 100, 20, 0, 40),
+        (150, 100, 20, 30, 0),
+    ],
+)
 def test_zero_equal_and_excess_capacity(client, demand, capacity, delta, shortfall, spare):
-    snapshot = create_comparison(client, demand_tonnes=demand, capacity_tonnes=capacity, actions={
-        "reserve_ferry": {"delta_tonnes": delta, "source": "Допущение А"},
-        "additional_ferry": {"delta_tonnes": delta, "source": "Допущение Б"},
-    })
+    snapshot = create_comparison(
+        client,
+        demand_tonnes=demand,
+        capacity_tonnes=capacity,
+        actions={
+            "reserve_ferry": {"delta_tonnes": delta, "source": "Допущение А"},
+            "additional_ferry": {"delta_tonnes": delta, "source": "Допущение Б"},
+        },
+    )
     first, second = snapshot["variants"][1:]
     assert first["scenario_shortfall_tonnes"] == second["scenario_shortfall_tonnes"] == shortfall
     assert first["scenario_spare_capacity_tonnes"] == second["scenario_spare_capacity_tonnes"] == spare
@@ -112,27 +125,41 @@ def test_zero_equal_and_excess_capacity(client, demand, capacity, delta, shortfa
 @pytest.mark.parametrize("value", [-1, 1e13, float("inf"), float("-inf"), float("nan")])
 @pytest.mark.parametrize("field", ["demand_tonnes", "capacity_tonnes"])
 def test_invalid_masses_are_rejected(client, field, value):
-    response = client.post("/api/v1/comparisons", content=json.dumps(comparison_input(**{field: value})),
-                           headers={"Content-Type": "application/json"})
+    response = client.post(
+        "/api/v1/comparisons",
+        content=json.dumps(comparison_input(**{field: value})),
+        headers={"Content-Type": "application/json"},
+    )
     assert response.status_code == 422
     assert "comparison_id" not in response.json()
 
 
-@pytest.mark.parametrize("updates", [
-    {"region": "kamchatka"},
-    {"mode": "road"},
-    {"direction": "both"},
-    {"period": "2027-01"},
-    {"period": "2031"},
-    {"capacity_source": "   "},
-    {"grid_size": 16},
-    {"actions": {"reserve_ferry": {"delta_tonnes": 20, "source": "А"}}},
-    {"actions": {"reserve_ferry": {"delta_tonnes": -1, "source": "А"},
-                 "additional_ferry": {"delta_tonnes": 70, "source": "Б"}}},
-    {"capacity_tonnes": 1e12, "actions": {
-        "reserve_ferry": {"delta_tonnes": 1e12, "source": "А"},
-        "additional_ferry": {"delta_tonnes": 1, "source": "Б"}}},
-])
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"region": "kamchatka"},
+        {"mode": "road"},
+        {"direction": "both"},
+        {"period": "2027-01"},
+        {"period": "2031"},
+        {"capacity_source": "   "},
+        {"grid_size": 16},
+        {"actions": {"reserve_ferry": {"delta_tonnes": 20, "source": "А"}}},
+        {
+            "actions": {
+                "reserve_ferry": {"delta_tonnes": -1, "source": "А"},
+                "additional_ferry": {"delta_tonnes": 70, "source": "Б"},
+            }
+        },
+        {
+            "capacity_tonnes": 1e12,
+            "actions": {
+                "reserve_ferry": {"delta_tonnes": 1e12, "source": "А"},
+                "additional_ferry": {"delta_tonnes": 1, "source": "Б"},
+            },
+        },
+    ],
+)
 def test_missing_assumptions_unsupported_slices_and_bounds_are_rejected(client, updates):
     response = client.post("/api/v1/comparisons", json=comparison_input(**updates))
     assert response.status_code in (404, 422), response.text
@@ -262,10 +289,14 @@ def test_api_passports_csv_json_and_print_report_reproduce_same_comparison(clien
 
 
 def test_user_text_is_escaped_in_print_and_csv_formula_cells(client):
-    snapshot = create_comparison(client, capacity_source='<script>alert("x")</script>', actions={
-        "reserve_ferry": {"delta_tonnes": 20, "source": "=HYPERLINK(\"https://example.org\")"},
-        "additional_ferry": {"delta_tonnes": 70, "source": "+1+1"},
-    })
+    snapshot = create_comparison(
+        client,
+        capacity_source='<script>alert("x")</script>',
+        actions={
+            "reserve_ferry": {"delta_tonnes": 20, "source": '=HYPERLINK("https://example.org")'},
+            "additional_ferry": {"delta_tonnes": 70, "source": "+1+1"},
+        },
+    )
     base = "/api/v1/comparisons/" + snapshot["comparison_id"] + "/export"
     html = client.get(base, params={"format": "html"}).text
     assert '<script>alert("x")</script>' not in html
@@ -277,9 +308,12 @@ def test_user_text_is_escaped_in_print_and_csv_formula_cells(client):
 
 
 def test_browser_cannot_supply_ready_calculation_results(client):
-    response = client.post("/api/v1/comparisons", json=comparison_input(
-        variants=[{"id": "baseline", "scenario_shortfall_tonnes": 0}],
-    ))
+    response = client.post(
+        "/api/v1/comparisons",
+        json=comparison_input(
+            variants=[{"id": "baseline", "scenario_shortfall_tonnes": 0}],
+        ),
+    )
     assert response.status_code == 422
 
 

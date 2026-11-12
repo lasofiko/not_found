@@ -24,9 +24,14 @@ def annual_service(tmp_path):
     write_json(path, artifact)
     sha = digest(path.read_bytes())
     path.with_suffix(".json.sha256").write_text(sha, encoding="utf-8")
-    write_json(tmp_path / "models/latest.json", {
-        "model_path": "models/synthetic-only.json", "model_version": artifact["model_version"], "sha256": sha,
-    })
+    write_json(
+        tmp_path / "models/latest.json",
+        {
+            "model_path": "models/synthetic-only.json",
+            "model_version": artifact["model_version"],
+            "sha256": sha,
+        },
+    )
     return ForecastService(tmp_path), path, artifact
 
 
@@ -39,8 +44,14 @@ def test_history_forecast_methods_and_passports_share_artifact(annual_service):
     assert [r["period"] for r in result["rows"]] == [str(y) for y in range(2015, 2026)]
     observed = result["rows"][0]
     assert observed == {
-        "period": "2015", "result_type": "observed", "inbound": 150, "outbound": 50,
-        "total": 200, "inbound_share": 0.75, "outbound_share": 0.25, "difference_tonnes": 100,
+        "period": "2015",
+        "result_type": "observed",
+        "inbound": 150,
+        "outbound": 50,
+        "total": 200,
+        "inbound_share": 0.75,
+        "outbound_share": 0.25,
+        "difference_tonnes": 100,
         "inbound_outbound_ratio": 3,
     }
     forecast = result["rows"][9]
@@ -50,8 +61,15 @@ def test_history_forecast_methods_and_passports_share_artifact(annual_service):
     assert "interval" not in forecast
     assert ASYMMETRY_WARNING in result["warnings"]
     for index, row in enumerate(result["rows"]):
-        for field in ("inbound", "outbound", "total", "inbound_share", "outbound_share", "difference_tonnes",
-                      "inbound_outbound_ratio"):
+        for field in (
+            "inbound",
+            "outbound",
+            "total",
+            "inbound_share",
+            "outbound_share",
+            "difference_tonnes",
+            "inbound_outbound_ratio",
+        ):
             passport = result["passports"][f"rows.{index}.{field}"]
             assert passport["value"] == row[field]
             assert passport["period"] == row["period"]
@@ -74,6 +92,7 @@ def test_partial_direction_and_zero_denominators(forecast_context):
         if direction == "outbound":
             raise FileNotFoundError("synthetic missing")
         return forecast_context
+
     result = build_direction_profile(SimpleNamespace(get=get))
     assert result["status"] == "partial"
     assert result["rows"][9]["inbound"] == 12345
@@ -85,6 +104,7 @@ def test_partial_direction_and_zero_denominators(forecast_context):
         for point in item.predictions:
             point.value = 0
         return item
+
     result = build_direction_profile(SimpleNamespace(get=zero))
     assert result["rows"][9]["total"] == 0
     assert result["rows"][9]["inbound_share"] is None
@@ -95,6 +115,7 @@ def test_partial_direction_and_zero_denominators(forecast_context):
 def test_incompatible_model_versions_rejected(forecast_context):
     def get(direction, end_year):
         return forecast_context.model_copy(update={"direction": direction, "model_version": direction})
+
     with pytest.raises(ValueError, match="Версии"):
         build_direction_profile(SimpleNamespace(get=get))
 
@@ -120,18 +141,28 @@ def test_history_switch_or_corruption_rejected(annual_service):
 def test_coverage_separates_registered_missing_original_and_connected_model(annual_service):
     service, _, _ = annual_service
     source = {
-        "source_id": "synthetic_test_fixture", "source_key": "rosmorport_freight", "organization": "Синтетика",
-        "url": "https://example.org/source", "local_path": "data/raw/missing.html",
+        "source_id": "synthetic_test_fixture",
+        "source_key": "rosmorport_freight",
+        "organization": "Синтетика",
+        "url": "https://example.org/source",
+        "local_path": "data/raw/missing.html",
     }
     write_json(service.root / "data/source_registry.json", {"artifacts": [source]})
     result = build_coverage(service)
     assert {r["territory"] for r in result["rows"]} == {
-        "Калининградская область", "Приморский край", "Камчатский край",
+        "Калининградская область",
+        "Приморский край",
+        "Камчатский край",
     }
     line = next(r for r in result["rows"] if r["id"] == "line_inbound")
     assert line["stages"] == {
-        "source_registered": True, "original_available": False, "extracted": True, "series_checked": True,
-        "model_exists": True, "model_connected": True, "ui_available": True,
+        "source_registered": True,
+        "original_available": False,
+        "extracted": True,
+        "series_checked": True,
+        "model_exists": True,
+        "model_connected": True,
+        "ui_available": True,
     }
     assert line["forecast_available"] is True
     assert all(r["forecast_available"] is False for r in result["rows"] if not r["id"].startswith("line_"))
@@ -154,8 +185,18 @@ def test_coverage_does_not_mark_existing_csv_as_checked_without_manifest(tmp_pat
     assert port["source"]["url"] is None
 
 
-@pytest.mark.parametrize("url", ["javascript:alert(1)", "file:///C:/secret", "http://localhost/api", "http://127.0.0.1/",
-                                 "https://user:secret@example.org/", "https://server.local/", "provided:original.xls"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "javascript:alert(1)",
+        "file:///C:/secret",
+        "http://localhost/api",
+        "http://127.0.0.1/",
+        "https://user:secret@example.org/",
+        "https://server.local/",
+        "provided:original.xls",
+    ],
+)
 def test_unsafe_evidence_urls_are_not_exposed(url):
     assert public_url(url) is None
 
