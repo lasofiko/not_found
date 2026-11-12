@@ -183,7 +183,7 @@ class BuildTests(unittest.TestCase):
                 archive.extractall(destination)
             self.assertEqual(verify(destination), [])
             self.assertTrue((destination / "HANDOFF.md").is_file())
-            self.assertTrue(output.with_suffix(".zip.sha256").read_text().startswith(digest(output.read_bytes())))
+            self.assertTrue(output.with_suffix(".zip.sha256").read_text(encoding="utf-8").startswith(digest(output.read_bytes())))
 
     def test_rebuild_is_identical_keeps_annual_granularity_and_does_not_approve_target(self):
         with TemporaryDirectory() as name:
@@ -199,7 +199,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(before, {p: (root / p).read_bytes() for p in second["outputs"]})
             self.assertEqual(first["candidate_rows"], 18)
             self.assertEqual(first["target_selection"], "pending")
-            self.assertEqual(primary.read_text(), "existing team work")
+            self.assertEqual(primary.read_text(encoding="utf-8"), "existing team work")
             self.assertEqual(verify(root), [])
             with (root / "data/processed/candidate_observations.csv").open(encoding="utf-8-sig") as stream:
                 rows = list(csv.DictReader(stream))
@@ -234,11 +234,11 @@ class BuildTests(unittest.TestCase):
                 self.assertEqual(row["difference_tonnes"], "")
                 self.assertEqual(row["line_sum_tonnes"], "168" if value == "900" else "")
                 self.assertEqual(row["terminal_cabotage_tonnes"], "" if value == "900" else "900")
-                log = json.loads((root / "data/processed/transformation_log.json").read_text())
+                log = json.loads((root / "data/processed/transformation_log.json").read_text(encoding="utf-8"))
                 self.assertEqual(log["reconciliation_incomplete"], 1)
-                quality = json.loads((root / "data/processed/target-quality.json").read_text())
+                quality = json.loads((root / "data/processed/target-quality.json").read_text(encoding="utf-8"))
                 self.assertEqual(quality["line_terminal_incomplete_years"], ["2015"])
-                self.assertIn("нет данных", (root / "docs/data-quality-report.md").read_text())
+                self.assertIn("нет данных", (root / "docs/data-quality-report.md").read_text(encoding="utf-8"))
 
     def test_zero_mass_is_valid_for_reconciliation(self):
         with TemporaryDirectory() as name:

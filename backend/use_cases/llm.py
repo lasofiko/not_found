@@ -1,5 +1,8 @@
 """Application use case: ask transport assistant via ports."""
 
+import hashlib
+import time
+from collections import OrderedDict
 from typing import Protocol
 
 from backend.domain.llm import DEFAULT_SUMMARY_QUESTION, SYSTEM_PROMPT, build_forecast_context
@@ -34,7 +37,7 @@ class LLMUpstreamError(Exception):
 class LLMGateway(Protocol):
     """Outbound port to an LLM provider."""
 
-    async def ask(self, context: str, question: str) -> str:
+    async def ask(self, context: str, question: str, *, system_prompt: str | None = None) -> str:
         """Return the model answer for the given context and question."""
         ...
 
@@ -52,13 +55,17 @@ class AskTransportAssistant:
         self,
         data_repository: ForecastRepository,
         llm_gateway: LLMGateway,
+        *,
+        summary_cache_ttl: float = 60,
     ) -> None:
         self._data_repository = data_repository
         self._llm_gateway = llm_gateway
+        self._summary_cache_ttl = summary_cache_ttl
+        self._summary_cache: OrderedDict[str, tuple[float, AnswerResponse]] = OrderedDict()
 
     async def summary(self, selection: AssistantSelection | None = None) -> AnswerResponse:
         """Generate the automatic summary for available data."""
-        return await self._ask(DEFAULT_SUMMARY_QUESTION, selection or AssistantSelection())
+        return await self._ask(DEFAULT_SUMMARY_QUESTION, selection or AssistantSelection(), cache=True)
 
     async def ask(self, question: str, selection: AssistantSelection | None = None) -> AnswerResponse:
         """Answer a user question about available analytical data."""
@@ -69,7 +76,7 @@ class AskTransportAssistant:
             raise LLMValidationError("Вопрос не может быть длиннее 4000 символов.")
         return await self._ask(cleaned, selection or AssistantSelection())
 
-    async def _ask(self, question: str, selection: AssistantSelection) -> AnswerResponse:
+    async def _ask(self, question: str, selection: AssistantSelection, *, cache: bool = False) -> AnswerResponse:
         if (selection.region, selection.mode, selection.study_city, selection.other_region, selection.other_city) != (
             "kaliningrad",
             "sea",
@@ -89,8 +96,20 @@ class AskTransportAssistant:
         except (ValueError, OSError, KeyError, TypeError, ArithmeticError) as exc:
             raise LLMContextInvalidError("Не удалось проверить модель и происхождение контекста ассистента.") from exc
         context = build_forecast_context(forecast.model_dump(mode="json"))
+        key = hashlib.sha256(context.encode("utf-8")).hexdigest()
+        if cache:
+            now = time.monotonic()
+            for stale in [k for k, (expires, _) in self._summary_cache.items() if expires <= now]:
+                del self._summary_cache[stale]
+            if key in self._summary_cache:
+                return self._summary_cache[key][1].model_copy(deep=True)
         answer = await self._llm_gateway.ask(context, question)
-        return AnswerResponse(answer=answer, context=forecast)
+        response = AnswerResponse(answer=answer, context=forecast)
+        if cache and self._summary_cache_ttl > 0:
+            self._summary_cache[key] = (time.monotonic() + self._summary_cache_ttl, response.model_copy(deep=True))
+            while len(self._summary_cache) > 32:
+                self._summary_cache.popitem(last=False)
+        return response
 
     @property
     def system_prompt(self) -> str:

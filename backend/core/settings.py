@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("")
     llm_model: str = ""
     llm_timeout_seconds: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)
+    llm_access_token: SecretStr = SecretStr("")
+    llm_allow_remote: bool = False
+    llm_requests_per_minute: int = Field(default=30, ge=1, le=10000)
+    llm_max_concurrent_requests: int = Field(default=2, ge=1, le=100)
+    llm_max_tokens: int = Field(default=800, ge=1, le=16000)
+    llm_max_answer_chars: int = Field(default=12000, ge=1, le=100000)
+    llm_summary_cache_ttl_seconds: float = Field(default=60, ge=0, le=3600, allow_inf_nan=False)
 
     @field_validator("llm_base_url")
     @classmethod

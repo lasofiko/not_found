@@ -203,6 +203,21 @@ def supplemental_report(quality: dict) -> str:
 
 
 def build(root: Path, *, available_only: bool = False) -> dict:
+    from ml.publication import staged_generation
+    from pipeline.generation import publish_data, snapshot_workspace, workspace_root
+    from pipeline.verify import verify
+    root = workspace_root(root)
+    with staged_generation(root) as staged:
+        snapshot_workspace(root, staged)
+        manifest = _build(staged, available_only=available_only)
+        errors = verify(staged)
+        if errors:
+            raise ValueError("Поколение не прошло проверку: " + "; ".join(errors[:5]))
+        publish_data(root, staged, manifest)
+    return manifest
+
+
+def _build(root: Path, *, available_only: bool = False) -> dict:
     artifacts = load_registry(root)
     latest_registered, available, unavailable = {}, [], []
     for artifact in artifacts:

@@ -98,7 +98,8 @@ def _terminal_lines(terminal_rows: list[dict]) -> list[str]:
         lines.append(f"| {row['period']} | {labels[row['line_kind']]} | {_tonnes(row['line_tonnes'])} | {_tonnes(row['terminal_tonnes'])} | "
                      f"{_tonnes(row['difference_tonnes'])} | {_percent(row['difference_percent'])} |")
     differing = [str(r["period"]) for r in terminal_rows
-                 if r["line_kind"] == "published_line" and abs(r["difference_percent"]) > TERMINAL_MATCH_PERCENT]
+                 if r["line_kind"] == "published_line" and r["difference_percent"] is not None
+                 and abs(r["difference_percent"]) > TERMINAL_MATCH_PERCENT]
     lines += ["", "Годы, где опубликованная сумма линии отличается от терминала больше чем на 1%: " + (", ".join(differing) or "нет") + ".",
               "Причина расхождений источником не объяснена. Опубликованные значения не корректировались; разность нельзя трактовать как другую линию, ошибку или тару.", ""]
     return lines

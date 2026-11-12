@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import { calculateCapacity, capacitySchema, forecastSchema, requestJson } from '../src/api.ts'
 import { createForecastReport } from '../src/report.ts'
+import { syntheticForecast } from './forecast-fixture.mjs'
 
 test('неверный JSON и null не становятся успешным прогнозом', async () => {
   const original = global.fetch
@@ -59,8 +60,9 @@ test('таймаут и внешняя отмена завершают запр�
   } finally { global.fetch = original }
 })
 
-test('реальный ответ API проходит схему, все годы CSV совпадают с API', { skip: !process.env.NF_FORECAST_FIXTURE }, () => {
-  const result = forecastSchema.parse(JSON.parse(readFileSync(process.env.NF_FORECAST_FIXTURE, 'utf8')))
+test('ответ API проходит схему, все годы CSV совпадают с единым снимком (по умолчанию синтетика)', () => {
+  const result = forecastSchema.parse(process.env.NF_FORECAST_FIXTURE
+    ? JSON.parse(readFileSync(process.env.NF_FORECAST_FIXTURE, 'utf8')) : syntheticForecast())
   const csv = createForecastReport(result)
   assert.equal(csv.charCodeAt(0), 0xFEFF)
   const rows = csv.slice(1).trim().split('\r\n').slice(1).map(row => row.split(';').map(cell => cell.slice(1, -1)))

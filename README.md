@@ -1,5 +1,16 @@
 # FloCast
 
+Новый рабочий раздел **«Сравнить решения»** (`/#compare`) объединяет сравнение
+базы/резерва/дополнительного парома, пороги, паспорта показателей, профиль ввоза
+и вывоза, матрицу покрытия, обоснование HTML/CSV/JSON и пояснение применённого
+снимка в существующей AI-панели. Основные расчёты работают без LLM; прямой ввод —
+также без модели. [Пользовательский путь и ограничения](docs/decision-workspace.md).
+Снимки действуют 30 минут; приложение запускается с одним worker.
+Реализация, файлы, фактические проверки и средовые ограничения:
+[итоговый отчёт](docs/decision-implementation-report.md).
+После запуска: `python scripts/smoke_decisions.py`; флаг `--expect-llm-disabled`
+проверяет режим без провайдера и не вызывает платную модель.
+
 ## Контейнерный запуск и интеграция main/devops
 
 Из корня репозитория, с Docker Desktop в режиме Linux containers (Compose 2.24+):
@@ -32,6 +43,19 @@ npm --prefix frontend run build
 uv run --locked --no-sync uvicorn backend.app:app --reload
 ```
 
+Если существующая `.venv` создана другой версией Python или содержит несовместимые
+бинарные пакеты, сохраните её и создайте отдельное окружение из того же lock-файла:
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = '.cache/venv311'
+uv sync --locked --python 3.11 --extra dev --extra data --extra ml
+uv run --locked --no-sync python -c "import numpy, statsmodels.api, backend.app"
+```
+
+Эту переменную задавайте в каждом новом терминале. В текущей рабочей копии
+проверенное окружение находится в `.cache/venv311`; прежняя `.venv` сохранена.
+Бинарные зависимости между версиями Python не копируются.
+
 Для разработки React во втором терминале: `npm --prefix frontend run dev`.
 Проверки: `uv run --locked --no-sync pytest -q`,
 `uv run --locked --no-sync ruff check backend scripts/smoke.py`,
@@ -42,6 +66,13 @@ uv run --locked --no-sync uvicorn backend.app:app --reload
 Подробные команды для PowerShell/Linux, карта переменных, ML, диагностика Docker/LLM,
 ограничения CI и production: [инструкция DevOps](docs/devops.md).
 Фактические результаты интеграции: [отчёт](docs/devops-integration-report.md).
+
+Исправления для демонстрации от 12.11.2026, таблица всех 20 пунктов, проверки
+и оставшаяся приёмка: [отчёт готовности](docs/hackathon-readiness-2026-11-12.md).
+Подготовка данных/моделей допускает одного писателя на рабочую копию;
+повторяйте команду после завершения другой. Не удаляйте файл блокировки:
+блокировку автоматически освобождает ОС. Замороженные исследования и blind
+не нужно пересчитывать для запуска сайта.
 
 FloCast — исследовательский прототип команды **Not Found** для анализа грузовых перевозок между Калининградской областью, Приморским краем, Камчатским краем и остальной Россией. Наблюдения, ML-прогнозы, синтетические примеры и сценарные расчёты показываются отдельно.
 
@@ -89,14 +120,14 @@ HTTP API запускается независимо от наличия ML-ар
 
 ## Быстрый запуск
 
-Нужны **Python 3.11+**, **Node.js 22.12+ из ветки 22 либо Node.js 24+** и npm. Далее все команды выполняются **из корня not_found**, если явно не указано иное.
+Нужны **Python 3.11** для проверенного lock-окружения, **Node.js 22.12+ из ветки 22 либо Node.js 24+** и npm. Далее все команды выполняются **из корня not_found**, если явно не указано иное.
 
 ### 1. Первичная установка
 
 Windows PowerShell:
 
 ~~~powershell
-python -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 if (-not (Test-Path -LiteralPath .env)) { Copy-Item .env.example .env }
@@ -106,7 +137,7 @@ npm --prefix frontend ci
 macOS и Linux:
 
 ~~~bash
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 test -e .env || cp .env.example .env
@@ -155,7 +186,7 @@ npm run dev
 
 ### Проверка актуальности сборки
 
-При build создаётся frontend/dist/build-info.json с SHA-256 исходников, public, конфигурации и итогового index.html. Backend сверяет сборку с текущим frontend. Если dist отсутствует, устарел или не прошёл проверку, UI возвращает HTTP 503 с командой сборки; API остаётся доступным.
+При build создаётся frontend/dist/build-info.json с SHA-256 исходников, public, конфигурации и итогового index.html. Backend сверяет сборку с текущим frontend вне основного асинхронного потока; результат кэшируется на 0,5 секунды. Замена манифеста или HTML инвалидирует проверку сразу. Изменение исходников обнаруживается при следующей полной проверке после истечения кэша. Если dist отсутствует, устарел или не прошёл проверку, UI возвращает HTTP 503 с командой сборки; API остаётся доступным.
 
 При запуске из репозитория сохраняйте src, public и конфигурацию рядом с dist: они нужны для проверки. HTML не включается в PWA precache. После обновления старой версии страницы можно выполнить Ctrl+Shift+R.
 
@@ -171,6 +202,10 @@ Backend читает корневой .env через pydantic-settings; пре�
 | BB_DEV_BACKEND_URL | Адрес Backend для Vite proxy, по умолчанию http://127.0.0.1:8000. |
 | BB_LLM_BASE_URL, BB_LLM_API_KEY, BB_LLM_MODEL | Серверные настройки OpenAI-compatible провайдера. |
 | BB_LLM_TIMEOUT_SECONDS | Таймаут обращения к провайдеру. |
+| BB_LLM_ACCESS_TOKEN, BB_LLM_ALLOW_REMOTE | Bearer-токен доступа и явное разрешение удалённого LLM-доступа. В production токен обязателен, в том числе за локальным reverse proxy. |
+| BB_LLM_REQUESTS_PER_MINUTE, BB_LLM_MAX_CONCURRENT_REQUESTS | Общие лимиты процесса: 30 запросов/минуту и 2 параллельных по умолчанию. |
+| BB_LLM_MAX_TOKENS, BB_LLM_MAX_ANSWER_CHARS | Максимум ответа провайдера: 800 токенов и 12 000 символов по умолчанию. |
+| BB_LLM_SUMMARY_CACHE_TTL_SECONDS | Кэш одинаковых проверенных контекстов сводки: 60 секунд, максимум 32 записи; 0 отключает. |
 
 React получает актуальный apiBase из GET /config.json. При изменении BB_API_PREFIX перезапустите Backend, а при разработке — также Vite. Ключ LLM в браузер не передаётся.
 

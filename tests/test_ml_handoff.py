@@ -40,8 +40,8 @@ class SnapshotTests(unittest.TestCase):
                 path = root / "data/processed" / name
                 path.mkdir(parents=True, exist_ok=True)
                 (path / "example.csv").write_text("code,value\n0302,0\n0303,\n", encoding="utf-8-sig")
-                (path / ("manifest.json" if name else "build_manifest.json")).write_text('{"data_version":"test"}')
-            (root / "data/source_registry.json").write_text('{"artifacts":[]}')
+                (path / ("manifest.json" if name else "build_manifest.json")).write_text('{"data_version":"test"}', encoding="utf-8")
+            (root / "data/source_registry.json").write_text('{"artifacts":[]}', encoding="utf-8")
             for name in (
                 "far-east-handoff.md",
                 "kaliningrad-additional-contract.md",
@@ -52,9 +52,9 @@ class SnapshotTests(unittest.TestCase):
             ):
                 path = root / "docs" / name
                 path.parent.mkdir(exist_ok=True)
-                path.write_text("Вымышленная инструкция")
+                path.write_text("Вымышленная инструкция", encoding="utf-8")
             first = build(root, 100)
-            self.assertIn("human_review: pending", (root / BUNDLE / "README.md").read_text())
+            self.assertIn("human_review: pending", (root / BUNDLE / "README.md").read_text(encoding="utf-8"))
             self.assertEqual(first, build(root, 100))
             self.assertEqual(verify(root), [])
             archive = package(root)
@@ -77,15 +77,15 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(
                 digest(destination / "data/processed/example.csv"), digest(root / "data/processed/example.csv")
             )
-            (destination / "data/processed/example.csv").write_text("Чужие изменения")
+            (destination / "data/processed/example.csv").write_text("Чужие изменения", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "Не перезаписываю"):
                 restore(destination, root)
             fragment = first["datasets"][0]["fragments"][0]["path"]
-            (root / BUNDLE / fragment).write_text("Повреждено")
+            (root / BUNDLE / fragment).write_text("Повреждено", encoding="utf-8")
             self.assertTrue(verify(root))
 
             # Изменённая инструкция меняет версию передачи, даже если CSV прежние.
-            (root / "docs/contracts.md").write_text("Обновлённая инструкция")
+            (root / "docs/contracts.md").write_text("Обновлённая инструкция", encoding="utf-8")
             second = build(root, 100)
             self.assertNotEqual(first["bundle_version"], second["bundle_version"])
             self.assertEqual(verify(root), [])

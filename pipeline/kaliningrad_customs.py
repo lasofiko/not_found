@@ -87,6 +87,23 @@ def key(parts):
     return "ka-" + hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode()).hexdigest()[:20]
 
 
+def confirmed_unit(label):
+    """Валюта и масштаб следуют подписи; обменные курсы не предполагаются."""
+    caption = clean(label).casefold()
+    text = re.sub(r"[\s.,()]+", "", caption)
+    if text in {"тонн", "тонны", "т", "вес:тонн", "вестонн"}:
+        return "tonnes", "1"
+    usd = bool(re.search(r"\busd\b|долл(?:аров|ара|ар)?\.?\s*сша\b", caption))
+    rub = bool(re.search(r"\brub\b|\bруб(?:лей|ля|ль)?\b", caption))
+    if usd == rub or re.search(r"eur|евро|cny|юан|миллиард|млрд|%|[|/]", text):
+        return "", ""
+    thousand = bool(re.search(r"тыс|тысяч", text))
+    million = bool(re.search(r"млн|миллион", text))
+    if thousand and million:
+        return "", ""
+    return "usd" if usd else "rub", "1000000" if million else "1000" if thousand else "1"
+
+
 def parse_sheet(name, rows, source_id, version, inherited=False):
     """Распознаём единицы и интервалы по заголовкам; неопределённые формы остаются CSV."""
     if not rows:
@@ -96,15 +113,24 @@ def parse_sheet(name, rows, source_id, version, inherited=False):
     scope = definition(rows)
     output = []
     flag = "geography_inherited_from_workbook" if inherited else ""
+    signed_units = [clean(v) for n, row in rows.items() if n <= 16 for v in row
+                    if re.search(r"\b(?:usd|rub|eur|cny)\b|долл|\bруб(?:лей|ля|ль)?\b|евро|юан", clean(v), re.I)]
+    identities = {confirmed_unit(v) for v in signed_units}
+    sheet_money_unit = signed_units[0] if len(identities) == 1 else " | ".join(dict.fromkeys(signed_units))
 
-    def emit(n, col, raw, p, flow, partner, code, cargo, level, metric="trade_value", unit="тыс. долларов США"):
+    def column_unit(label):
+        # Не переносим общую USD-подпись на явно иную/неизвестную валюту столбца.
+        return label if re.search(r"usd|rub|eur|cny|долл|руб|евро|юан", label, re.I) else sheet_money_unit or label
+
+    def emit(n, col, raw, p, flow, partner, code, cargo, level, metric="trade_value", unit=None):
         if not p or raw == "":
             return
-        normalized, factor = (
-            ("tonnes", "1") if metric == "trade_goods_mass" else ("usd", "1" if unit == "долларов США" else "1000")
-        )
-        value, missing = number(raw, factor)
-        flags = ";".join(filter(None, [flag, missing]))
+        unit = sheet_money_unit if unit is None else unit
+        normalized, factor = confirmed_unit(unit)
+        value, missing = number(raw, factor or "1")
+        if not normalized:
+            value = ""
+        flags = ";".join(filter(None, [flag, missing, "unit_unconfirmed" if not normalized else ""]))
         if value.startswith("-") and metric != "trade_balance":
             value, flags = "", ";".join(filter(None, [flags, "negative_non_balance_value"]))
         item = dict.fromkeys(CUSTOMS_FIELDS, "")
@@ -135,7 +161,7 @@ def parse_sheet(name, rows, source_id, version, inherited=False):
             review_status="pending",
             data_version=version,
         )
-        item["series_id"] = key([scope, flow, partner, code, cargo, level, metric, p[4]])
+        item["series_id"] = key([scope, flow, partner, code, cargo, level, metric, normalized or unit, p[4]])
         output.append(item)
 
     # Товарная форма: колонки веса явно названы отдельно от количества.
@@ -150,7 +176,7 @@ def parse_sheet(name, rows, source_id, version, inherited=False):
     if weight_header and "важнейших товаров" in title:
         hn, units = weight_header
         cols = [
-            (c, "trade_goods_mass", "тонн") if "вес" in clean(v).lower() else (c, "trade_value", "тыс. долларов США")
+            (c, "trade_goods_mass", "тонн") if "вес" in clean(v).lower() else (c, "trade_value", column_unit(clean(v)))
             for c, v in enumerate(units)
             if re.fullmatch(r"вес\s*,?\s*тонн", clean(v).lower()) or "стоимость" in clean(v).lower()
         ]
@@ -221,11 +247,7 @@ def parse_sheet(name, rows, source_id, version, inherited=False):
         hn, flows = flow_header
         groups, periods = rows.get(hn - 1, []), rows.get(hn + 1, [])
         has_period_row = any(period(v) for v in periods)
-        unit = (
-            "тонн"
-            if any(clean(v).lower() == "(тонн)" for n, r in rows.items() if n <= hn for v in r)
-            else "тыс. долларов США"
-        )
+        unit = "тонн" if any(clean(v).lower() == "(тонн)" for n, r in rows.items() if n <= hn for v in r) else sheet_money_unit
         for n, vals in rows.items():
             if n <= hn + int(has_period_row) or len(vals) < 3 or not re.fullmatch(r"\d{2}(?:-\d{2})?", clean(vals[0])):
                 continue

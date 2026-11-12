@@ -7,7 +7,9 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import re
 import shutil
+import unicodedata
 from zipfile import BadZipFile, ZipFile
 
 from pipeline.common import ROOT, artifact_path, digest, load_registry, write_csv, write_json
@@ -32,9 +34,28 @@ def stream_sha(stream):
 
 def safe_relative(name):
     path = PurePosixPath(name)
-    if not path.parts or path.is_absolute() or ".." in path.parts or "\\" in name or ":" in name:
+    if (not path.parts or path.is_absolute() or path.as_posix() != name
+            or ".." in path.parts or "\\" in name
+            or unicodedata.normalize("NFC", name) != name
+            or any(re.search(r'[<>:"|?*\x00-\x1f]', part) or part.endswith((".", " "))
+                   or re.fullmatch(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", part, re.I)
+                   for part in path.parts)):
         raise ValueError("Небезопасный путь архива: " + name)
     return path
+
+
+def unique_paths(names, label):
+    """Windows-алиасы запрещены и при проверке на другой ОС."""
+    seen = set()
+    for name in names:
+        safe_relative(name)
+        key = name.casefold()
+        if key in seen:
+            raise ValueError("Коллизия путей " + label + ": " + name)
+        seen.add(key)
+    for name in seen:
+        if any(parent.as_posix().casefold() in seen for parent in PurePosixPath(name).parents if parent.parts):
+            raise ValueError("Файл одновременно является каталогом " + label + ": " + name)
 
 
 def processed_outputs(archive, *, required=False):
@@ -61,12 +82,15 @@ def validate_archive(root, archive, *, require_processed=False):
     """Только чтение: все проверки должны завершиться до установки любых частей."""
     members = [i for i in archive.infolist() if not i.is_dir()]
     names = [i.filename for i in members]
-    if len(names) != len(set(names)):
-        raise ValueError("Повтор имени в ZIP")
+    unique_paths(names, "ZIP")
+    for item in archive.infolist():
+        if item.is_dir():
+            safe_relative(item.filename[:-1])
     if sum(i.file_size for i in members) > 4 * 1024**3:
         raise ValueError("ZIP превышает предел распаковки 4 ГиБ")
     index_bytes = archive.read(INDEX) if INDEX in names else (root / INDEX).read_bytes()
     index = json.loads(index_bytes.decode("utf-8-sig"))
+    unique_paths([record["path"] for record in index["files"]], "манифеста")
     expected = {}
     for record in index["files"]:
         safe_relative(record["path"])
@@ -89,6 +113,32 @@ def validate_archive(root, archive, *, require_processed=False):
     return members, index_bytes, expected
 
 
+def installation_targets(root, stored, members):
+    """Разрешить все конечные пути и конфликты до первой записи на диск."""
+    targets = []
+    seen = set()
+    for item in members:
+        name = item.filename
+        install = name.startswith(("data/processed/", "data/interim/", "data/raw/"))
+        destination = (root / name).resolve() if install else (stored / "context" / name).resolve()
+        allowed = root if install else stored
+        if not destination.is_relative_to(allowed) or (install and destination.is_relative_to(stored)):
+            raise ValueError("Путь установки выходит за разрешённый каталог: " + name)
+        key = str(destination).casefold()
+        if key in seen:
+            raise ValueError("Коллизия конечных путей установки: " + name)
+        seen.add(key)
+        if destination.exists() and not destination.is_file():
+            raise ValueError("Вместо файла существует каталог: " + name)
+        if any(parent.exists() and not parent.is_dir() for parent in destination.parents):
+            raise ValueError("Родитель пути является файлом: " + name)
+        targets.append((item, destination, install))
+    for _, destination, _ in targets:
+        if any(str(parent).casefold() in seen for parent in destination.parents):
+            raise ValueError("Файл одновременно является каталогом установки")
+    return targets
+
+
 def import_archive(root, path):
     """Сначала проверить весь ZIP, затем сохранить и установить только данные."""
     root, path = Path(root).resolve(), Path(path).resolve()
@@ -97,20 +147,16 @@ def import_archive(root, path):
         # Проверки не меняют рабочие файлы при повреждённом входном ZIP.
         archive_sha = file_sha(path)
         stored = root / "data/raw/team_bundles" / archive_sha[:16]
-        stored.mkdir(parents=True, exist_ok=True)
         original = stored / "package.zip"
         if original.exists() and file_sha(original) != archive_sha:
             raise ValueError("Повреждена сохранённая копия ZIP")
+        targets = installation_targets(root, stored, members)
+        stored.mkdir(parents=True, exist_ok=True)
         if not original.exists():
             shutil.copyfile(path, original)
         counts = defaultdict(int)
-        for item in members:
+        for item, destination, install in targets:
             name = item.filename
-            install = name.startswith(("data/processed/", "data/interim/", "data/raw/"))
-            destination = (root / name).resolve() if install else (stored / "context" / name).resolve()
-            allowed = root if install else stored
-            if not destination.is_relative_to(allowed):
-                raise ValueError("Путь установки выходит за корень")
             expected_sha = digest(index_bytes) if name == INDEX else expected[name]["sha256"]
             if destination.is_file() and file_sha(destination) == expected_sha:
                 counts["unchanged"] += 1
@@ -315,6 +361,18 @@ def rebuild(root):
 
 
 def rebuild_processed(root, archive_path, *, raw_root=None, source_kind=None, enrich=False):
+    from ml.publication import staged_generation
+    from pipeline.generation import publish_data, snapshot_workspace, workspace_root
+    root = workspace_root(root)
+    with staged_generation(root) as staged:
+        snapshot_workspace(root, staged)
+        result = _rebuild_processed(staged, archive_path, raw_root=raw_root, source_kind=source_kind, enrich=enrich)
+        manifest = json.loads((staged / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+        publish_data(root, staged, manifest)
+        return result
+
+
+def _rebuild_processed(root, archive_path, *, raw_root=None, source_kind=None, enrich=False):
     """Новая сборка производных таблиц, не переизвлечение первичных источников."""
     root, archive_path = Path(root).resolve(), Path(archive_path).resolve()
     if archive_path.is_dir():
@@ -398,7 +456,7 @@ def rebuild_processed(root, archive_path, *, raw_root=None, source_kind=None, en
         prepare(root)
         prepare_sources(root, version)
         prepare_protocol(root)
-        manifest["raw_validation_scope"] = "reextracted_port_cells_and_redacted_september_check"
+        manifest["raw_validation_scope"] = "reextracted_port_cells_and_saved_september_integrity"
         manifest["generated_outputs"] = {
             p.relative_to(root).as_posix(): file_sha(p)
             for folder in ("data/processed/team_bundle", "data/processed/port_protocol")

@@ -32,6 +32,9 @@ import { TransportGallery } from './TransportGallery'
 import { FilterSelect } from './FilterSelect'
 import { GeographyFilters } from './GeographyFilters'
 import { CapacityCalculator } from './CapacityCalculator'
+import { AssistantDialog } from './AssistantDialog'
+import { DecisionAssistant, DecisionWorkspace } from './DecisionWorkspace'
+import type { ComparisonSnapshot } from './comparison-api'
 import { DEFAULT_GEOGRAPHY, CORRIDORS, isDemoAvailable, mapLinks, routeSelection, selectionReport, type Geography } from './geography'
 import './App.css'
 
@@ -54,6 +57,7 @@ const navItems = [
   { id: 'routes', label: 'Маршруты', icon: Route },
   { id: 'forecast', label: 'Прогноз', icon: ArrowUpRight },
   { id: 'scenarios', label: 'Сценарии', icon: Layers3 },
+  { id: 'compare', label: 'Сравнить решения', icon: Layers3 },
   { id: 'capacity', label: 'Калькулятор', icon: Calculator },
   { id: 'data', label: 'Данные', icon: Database },
 ]
@@ -161,6 +165,11 @@ export default function App() {
   const [appliedGeo, setAppliedGeo] = useState<Geography>({ ...DEFAULT_GEOGRAPHY })
   const [navOpen, setNavOpen] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [assistantMode, setAssistantMode] = useState<'chat' | 'comparison'>('chat')
+  const [decisionSelection, setDecisionSelection] = useState<{ key: string; snapshot: ComparisonSnapshot | null }>({ key: '', snapshot: null })
+  const decisionContextKey = JSON.stringify([appliedGeo, applied.direction])
+  const selectedComparison = decisionSelection.key === decisionContextKey ? decisionSelection.snapshot : null
+  const updateComparison = useCallback((snapshot: ComparisonSnapshot | null) => setDecisionSelection({ key: decisionContextKey, snapshot }), [decisionContextKey])
   const [activeNav, setActiveNav] = useState('overview')
   const [theme, setTheme] = useState<Theme>(() => {
     try { return localStorage.getItem('flocast-theme') === 'dark' ? 'dark' : 'light' }
@@ -189,6 +198,19 @@ export default function App() {
   const summaryRequestedRef = useRef(false)
   const chatMessagesRef = useRef<HTMLDivElement>(null)
   const chatRequests = useRef(createAssistantRequests())
+  const closeAssistant = useCallback(() => {
+    chatRequests.current.cancel()
+    summaryRequestedRef.current = false
+    setIsLoading(false)
+    setAssistantOpen(false)
+  }, [])
+  const openComparisonAssistant = useCallback(() => {
+    chatRequests.current.cancel()
+    summaryRequestedRef.current = false
+    setIsLoading(false)
+    setAssistantMode('comparison')
+    setAssistantOpen(true)
+  }, [])
   const assistantChoice = useMemo(() => assistantSelection(appliedGeo, applied.direction), [appliedGeo, applied.direction])
   const assistantSupported = isAssistantSelectionSupported(assistantChoice)
   const assistantKey = JSON.stringify([apiBase, assistantChoice])
@@ -224,7 +246,6 @@ export default function App() {
       if (event.key === 'Escape') {
         setNavOpen(false)
         if (navOpen) menuButton.current?.focus()
-        setAssistantOpen(false)
       }
     }
     window.addEventListener('keydown', closeOverlays)
@@ -374,7 +395,7 @@ export default function App() {
   }, [clearChat])
 
   const fetchSummary = useCallback(async () => {
-    if (!assistantOpen || !apiBase || !assistantSupported || !currentChat) return
+    if (!assistantOpen || assistantMode !== 'chat' || !apiBase || !assistantSupported || !currentChat) return
     await chatRequests.current.run(signal => requestAssistant(apiBase, assistantChoice, signal), {
       start: () => {
         summaryRequestedRef.current = true
@@ -388,13 +409,13 @@ export default function App() {
       error: (error) => setChatError(error instanceof Error ? error.message : 'Не удалось получить сводку'),
       settled: () => setIsLoading(false),
     })
-  }, [assistantOpen, apiBase, assistantSupported, currentChat, assistantChoice, chatContext])
+  }, [assistantOpen, assistantMode, apiBase, assistantSupported, currentChat, assistantChoice, chatContext])
 
   useEffect(() => {
-    if (assistantOpen && apiBase && assistantSupported && currentChat && chatHistory.length === 0 && !summaryRequestedRef.current && !chatError) {
+    if (assistantOpen && assistantMode === 'chat' && apiBase && assistantSupported && currentChat && chatHistory.length === 0 && !summaryRequestedRef.current && !chatError) {
       void fetchSummary()
     }
-  }, [assistantOpen, apiBase, assistantSupported, currentChat, chatHistory.length, chatError, fetchSummary])
+  }, [assistantOpen, assistantMode, apiBase, assistantSupported, currentChat, chatHistory.length, chatError, fetchSummary])
 
   async function handleAsk(event: React.FormEvent) {
     event.preventDefault()
@@ -562,6 +583,8 @@ export default function App() {
           <div className="data-grid">{scenarioDefinitions.filter(scenario => scenario.label).map(scenario => <article className="panel" key={scenario.id}><h3>{scenario.label}. {scenario.name}</h3><p>{scenario.mechanism}</p><p>{scenario.limitation}</p><span className="tag">{scenario.calculation_status}</span></article>)}</div>
         </section>
 
+        <DecisionWorkspace key={decisionContextKey} initialRegion={appliedGeo.corridor === '39' ? 'kaliningrad' : appliedGeo.corridor === '25' ? 'primorsky' : 'kamchatka'} initialDirection={applied.direction} supported={isDemoAvailable(appliedGeo)} onSnapshotChange={updateComparison} onOpenAssistant={openComparisonAssistant} />
+
         <CapacityCalculator />
 
         <section className="section ai-feature" aria-labelledby="ai-title"><img src={`${import.meta.env.BASE_URL}images/logistics.jpg`} alt="" loading="lazy" /><div className="ai-feature-shade" /><div className="ai-feature-copy"><p className="eyebrow">Помощник исследователя</p><h2 id="ai-title">Больше контекста.<br /><em>Больше понимания.</em></h2><p>Обсудите транспортную связанность, ограничения данных и вопросы для дальнейшего исследования.</p><div className="ai-feature-tags"><span>Данные и источники</span><span>Транспорт</span><span>Гипотезы</span></div><button className="button-primary" onClick={() => setAssistantOpen(true)}><Sparkles size={17} />Открыть AI-ассистента</button><p className="tiny-note">Ассистент работает через backend проекта. Ответы формируются по переданному контексту.</p></div></section>
@@ -577,17 +600,21 @@ export default function App() {
       </main>
       <button className="assistant-launcher button-primary" onClick={() => setAssistantOpen(true)} aria-haspopup="dialog"><Sparkles size={22} /><span>AI-ассистент<small>Обсудить исследование</small></span><ArrowUpRight size={17} /></button>
 
-      {assistantOpen && <button className="assistant-backdrop" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента" />}
-
-      <aside className={`assistant-panel ${assistantOpen ? 'is-open' : ''}`} aria-label="AI-ассистент по годовому прогнозу линии">
+      <AssistantDialog open={assistantOpen} onClose={closeAssistant}>
         <header className="assistant-header">
           <Sparkles size={22} />
           <div>
-            <h2>AI-ассистент</h2>
-            <p>Годовой прогноз · через backend</p>
+            <h2 id="assistant-title">AI-ассистент</h2>
+            <p>{assistantMode === 'comparison' ? 'Выбранное сравнение' : 'Годовой прогноз · через backend'}</p>
           </div>
-          <button className="assistant-close" type="button" onClick={() => setAssistantOpen(false)} aria-label="Закрыть AI-ассистента"><X size={24} /></button>
+          <button className="assistant-close" type="button" onClick={closeAssistant} aria-label="Закрыть AI-ассистента"><X size={24} /></button>
         </header>
+
+        <div className="decision-assistant-modes" aria-label="Контекст ассистента">
+          <button className="button-secondary" type="button" aria-pressed={assistantMode === 'chat'} onClick={() => setAssistantMode('chat')}>Обычный чат</button>
+          <button className="button-secondary" type="button" aria-pressed={assistantMode === 'comparison'} onClick={() => { chatRequests.current.cancel(); summaryRequestedRef.current = false; setIsLoading(false); setAssistantMode('comparison') }}>Выбранное сравнение</button>
+        </div>
+        {assistantMode === 'comparison' ? assistantOpen && <DecisionAssistant key={selectedComparison?.comparison_id ?? 'no-comparison'} snapshot={selectedComparison} /> : <>
 
         <div className="assistant-context">
           <div><MapPin size={15} /><span>Выбрано: {selectedRoute.from.label} → {selectedRoute.to.label}</span></div>
@@ -672,7 +699,8 @@ export default function App() {
           </form>
           <span className="chat-hint">Ответ формируется по переданному контексту. Это не наблюдение, прогноз или сценарный расчёт.</span>
         </div>
-      </aside>
+        </>}
+      </AssistantDialog>
     </div>
   )
 }

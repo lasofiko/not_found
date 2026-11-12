@@ -155,7 +155,7 @@ class RunTests(unittest.TestCase):
             root = Path(folder)
             self._bundle(root)
             without = run_hypotheses(root)
-            self.assertIsNone(json.loads((without["output_dir"] / "run_manifest.json").read_text())["line_research"])
+            self.assertIsNone(json.loads((without["output_dir"] / "run_manifest.json").read_text(encoding="utf-8"))["line_research"])
             first_source = self._research(root, "research-a", 10)
             first = run_hypotheses(root)
             old_bytes = (first["output_dir"] / "hypothesis_results.csv").read_bytes()
@@ -166,7 +166,7 @@ class RunTests(unittest.TestCase):
             self.assertNotEqual(first["version"], second["version"])
             self.assertNotEqual(old_bytes, (second["output_dir"] / "hypothesis_results.csv").read_bytes())
             self.assertEqual(old_bytes, (first["output_dir"] / "hypothesis_results.csv").read_bytes())
-            manifest = json.loads((second["output_dir"] / "run_manifest.json").read_text())
+            manifest = json.loads((second["output_dir"] / "run_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["line_research"]["report_version"], "research-b")
             self.assertEqual(manifest["line_research"]["metrics_sha256"], digest((second_source / "metrics.json").read_bytes()))
             self.assertEqual(manifest["fingerprint"]["line_research"], manifest["line_research"])
@@ -227,7 +227,8 @@ class RunTests(unittest.TestCase):
         _write(processed / "weather_daily.csv", weather)
         _write(processed / "candidate_observations.csv", candidate)
         _write(processed / "port_cabotage_monthly.csv", terminal)
-        (processed / "build_manifest.json").write_text(json.dumps({"data_version": "test"}), encoding="utf-8")
+        write_json(processed / "build_manifest.json", {"data_version": "test", "outputs": {
+            "data/processed/" + p.name: digest(p.read_bytes()) for p in processed.glob("*.csv")}})
 
     def test_run_writes_outputs_and_labels_results_without_observed_status(self):
         with TemporaryDirectory() as folder:
@@ -255,17 +256,42 @@ class RunTests(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "build_manifest"):
                 run_hypotheses(Path(folder))
 
+    def test_all_consumed_tables_are_verified_and_versioned(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            self._bundle(root)
+            first = run_hypotheses(root)
+            old_bytes = (first["output_dir"] / "hypothesis_results.csv").read_bytes()
+            table = root / "data/processed/port_cabotage_monthly.csv"
+            table.write_bytes(table.read_bytes().replace(b"200000", b"300000"))
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                run_hypotheses(root)
+            path = root / "data/processed/build_manifest.json"
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest["outputs"]["data/processed/port_cabotage_monthly.csv"] = digest(table.read_bytes())
+            write_json(path, manifest)
+            second = run_hypotheses(root)
+            self.assertNotEqual(first["version"], second["version"])
+            self.assertEqual(old_bytes, (first["output_dir"] / "hypothesis_results.csv").read_bytes())
+            identity = json.loads((second["output_dir"] / "run_manifest.json").read_text(encoding="utf-8"))["input_identity"]
+            self.assertEqual(len(identity["tables"]), 4)
+            self.assertEqual(len(identity["parameters"]), 3)
+
     def test_saved_annual_forecast_enables_year_specific_action_table(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
             self._bundle(root)
             (root / "models").mkdir()
-            (root / "models/latest.json").write_text("{}")
-            def saved_forecast(direction, end_year, root):
+            model_path = root / "models/synthetic/model.json"
+            write_json(model_path, {"model_version": "synthetic-test"})
+            write_json(root / "models/latest.json", {"model_path": "models/synthetic/model.json",
+                       "sha256": digest(model_path.read_bytes()), "model_version": "synthetic-test"})
+            def saved_forecast(direction, end_year, root, model_path):
                 return {"predictions": [
                     {"period": str(year), "value": 100.0, "interval": {"80": {"upper": 150.0}}}
                     for year in (2027, 2028)]}
-            with patch("ml.hypotheses.forecast", side_effect=saved_forecast):
+            with patch("ml.hypotheses.forecast", side_effect=saved_forecast), patch(
+                    "ml.hypotheses.load_artifact", return_value={"model_version": "synthetic-test"}):
                 result = run_hypotheses(root)
             with (result["output_dir"] / "action_scenarios.csv").open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
@@ -274,7 +300,7 @@ class RunTests(unittest.TestCase):
             self.assertNotEqual(reserve["2027"]["reserve_gain_share"], "")
             self.assertEqual(reserve["2028"]["capacity_action_tonnes"], "")
             self.assertEqual(reserve["2027"]["capacity_rail_limited_tonnes"], "")
-            report = (result["output_dir"] / "hypotheses-report.md").read_text()
+            report = (result["output_dir"] / "hypotheses-report.md").read_text(encoding="utf-8")
             self.assertIn("Прирост от резерва", report)
 
     def test_shipped_fleet_path_exists(self):
