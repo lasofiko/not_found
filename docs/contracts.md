@@ -1,5 +1,82 @@
 # Контракты v0.18
 
+## Актуальный локальный снимок данных (12.11.2026)
+
+`python -m pipeline.current_snapshot` упаковывает текущие локальные `data/raw`,
+`data/interim`, `data/processed`, предоставленные дополнения, реестры, документацию,
+код обработки и сохранённые результаты ML. Это снимок файлов без пересборки,
+переобучения или повышения статуса проверки источников. Производные копии
+`data/ml_handoff`, старые архивы передачи, зависимости, кэши и `.env` исключаются.
+
+Результат — каталог в `reports/generated/current-data-<date>-<version>/`.
+Каждая самостоятельная ZIP-часть содержит `SNAPSHOT_README.md`, общий
+`SNAPSHOT_MANIFEST.json` и свою долю файлов с исходными путями.
+Манифест содержит `schema_version,data_version,created_at,max_archive_bytes,
+files,archives,limitations,excluded`; для каждого файла — `path,bytes,sha256,archive`.
+Имена частей и их SHA-256 перечислены в `SHA256SUMS` рядом с архивами.
+Лимит — 400 000 000 байт на ZIP, включая метаданные. Если общий ZIP укладывается
+в лимит, остаётся одна часть. Иначе файлы распределяются между самостоятельными ZIP;
+содержимое отдельного файла не разрезается. Части распаковываются в один пустой
+каталог. `--verify DIRECTORY` проверяет предел размера, состав, CRC и SHA-256
+всех файлов без извлечения. Полнота снимка относится к доступным локальным файлам,
+а не к полноте грузовой статистики или наличию отсутствующих первоисточников.
+
+## Регистрация пакета for-misha (12.11.2026)
+
+Дополнение к регистрации: `pipeline.research_addendum --schedule-text FILE.txt --facts FILE.csv`
+сохраняет переданный пользователем текст расписания и CSV в отдельном комплекте
+`data/processed/research_addendum/<version>/`; основной комплект не изменяется.
+`source_registry.json` фиксирует происхождение `provided:`, SHA-256 и неизвестные
+дату публикации/часовой пояс. Исходный текст — сохранённая текстовая передача
+сообщения пользователя, а не официальный файл расписания.
+`schedule.csv` содержит `vessel,voyage_id,origin,destination,direction,departure,
+arrival,duration_hours,status,evidence_status,review_status,source_id,source_locator,
+unit,timezone,data_version`. Время без смещения хранится как ISO local datetime,
+`timezone: unspecified`; длительность — разность указанных локальных дат в часах.
+Статусы: `status: planned`, `evidence_status: user_provided_text`, `review_status: pending`.
+UB означает `inbound`, BU — `outbound` относительно Калининградской области.
+Проверяются календарь, уникальность рейса, направление, порядок рейсов и
+непересечение интервалов одного судна; пропуски рейсов не заполняются.
+При точном совпадении CSV с уже зарегистрированным файлом новый факт не создаётся:
+`duplicate_receipt.json` фиксирует прежний `source_id`, оба имени и число строк.
+Требования к отсутствующим первичным протоколам остаются в силе.
+`manifest.json` закрепляет базовую регистрацию, код и хеши результатов;
+`--verify` воспроизводит расписание и квитанцию из сохранённых оригиналов.
+
+`python -m pipeline.research_package --archive FILE.zip` регистрирует предоставленный
+пакет в отдельном версионированном каталоге `data/processed/research_package/`.
+Исходный ZIP и все вложения сохраняются неизменными в `data/raw/research_package/`
+по SHA-256. Основной реестр, манифест сборки, ML-входы и API не меняются.
+
+`source_registry.json` (схема 0.2) содержит паспорта файлов: `source_id`,
+`organization`, `url`, `downloaded_at`, `published_at`, `period`, `geography`,
+`metric`, `original_unit`, `limitations`, `sha256`, `local_path`,
+`acquisition_locations`. Неустановленные сведения остаются пустыми; регистрация
+байтов не подтверждает числовые утверждения. Отчёты агентов — вторичные материалы.
+`source_references.csv` учитывает ссылки из таблиц, заявленную организацию,
+периоды, единицы и связанные локальные оригиналы. Ссылка без оригинала не получает
+фиктивного SHA-256; наличие локальной копии не означает повторного извлечения числа.
+
+`tables/*.csv` сохраняют все исходные строки и поля. Добавляются
+`registration_id,input_table,input_row,table_source_id,source_reference_id,
+evidence_source_ids,evidence_locators,evidence_status,review_status,
+provided_review_note,use_status,quality_flags,data_version`.
+`evidence_status: provided_unverified`, `review_status: pending` сохраняются
+независимо от исходного `verification`. `provided_review_note` отдельно фиксирует
+сообщение README о сверке блока AB Петей; завершённой человеческой проверки
+регистрация не создаёт. Исходные направления, единицы и неточные значения сохранены.
+
+`use_status`: `research_context`, `planned`, `duplicate_reference`,
+`conflict_hold`, `missing_primary_hold`. Дубли AB по вагонам/накатной технике,
+годовые дубли Росморпорта и конфликтующее заявление не становятся новыми
+наблюдениями. `quality_flags` перечисляет ограничения через `;`.
+Расписания — планы, `both` не делится между направлениями, годовые величины
+не распределяются по месяцам, тарифы и количество техники не переводятся в тонны.
+`row_issues.csv`, `table_catalog.csv`, `quality_report.json` и `README.md`
+показывают ограничения и отсутствующие оригиналы. `manifest.json` хранит хеши
+кода, ZIP, оригиналов и выходов; `latest.json` указывает завершённую версию.
+`--verify` проверяет хеши и повторно воспроизводит строки и связи из ZIP без сети.
+
 ## Инфраструктурная совместимость (11.11.2026)
 
 Публичные поля API сохранены. Ошибки провайдера по-прежнему возвращают HTTP 502 /

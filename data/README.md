@@ -1,5 +1,26 @@
 # Данные
 
+Все текущие локальные данные и дополнения одним комплектом:
+`python -m pipeline.current_snapshot`. Выход — в `../reports/generated/current-data-2026-11-12-<version>/`;
+ZIP не превышают 400 000 000 байт и распаковываются в один каталог.
+`python -m pipeline.current_snapshot --verify DIRECTORY` проверяет состав и хеши.
+Снимок сохраняет статусы и ограничения источников; старые архивы передачи и
+повторные копии `ml_handoff` исключены. `data/raw` остаётся в составе локальной
+передачи, включая исходные материалы с реквизитами; публикация не выполняется.
+
+Пакет `for-misha-2026-11-12.zip` регистрируется отдельно:
+`python -m pipeline.research_package --archive for-misha-2026-11-12.zip`,
+затем `python -m pipeline.research_package --verify`.
+Паспорта и таблицы: `processed/research_package/`, указатель версии: `latest.json`;
+неизменённые оригиналы: `raw/research_package/`. Основной реестр и манифест
+не переписываются. [Результат и ограничения](../docs/for-misha-registration.md).
+Текстовое расписание и повторно присланный CSV регистрируются отдельно:
+`python -m pipeline.research_addendum --schedule-text FILE.txt --facts FILE.csv`;
+проверка: `python -m pipeline.research_addendum --verify`.
+Результаты — в `processed/research_addendum/`, исходный текст — в
+`raw/research_package/`. CSV должен совпадать с зарегистрированным оригиналом;
+отличающийся файл требует отдельного разбора, а не автоматической замены.
+
 **Локальный комплект CSV для ML-инженера, исключённый из Git:**
 [data/ml_handoff/README.md](ml_handoff/README.md). Там находятся полные копии
 подготовленных таблиц Калининграда, Камчатки и Приморья; большие CSV разбиты
