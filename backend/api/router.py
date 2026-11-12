@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from backend.api.v1 import config, forecasts, health, legacy_capacity, llm, scenarios, status
+from backend.api.v1 import config, forecasts, health, legacy_capacity, llm, port_forecasts, scenarios, status, synthetic
 from backend.api.v1.comparisons import router as comparisons_router
 from backend.api.v1.decision_assistant import router as decision_assistant_router
 from backend.api.v1.decision_evidence import router as evidence_router
@@ -22,9 +22,11 @@ router.include_router(config.router)
 router.include_router(status.router)
 router.include_router(legacy_capacity.router)
 router.include_router(forecasts.router)
+router.include_router(port_forecasts.router)
 router.include_router(scenarios.router)
 router.include_router(llm.router)
 router.include_router(comparisons_router)
 router.include_router(evidence_router)
 router.include_router(decision_assistant_router)
 router.include_router(exports_router)
+router.include_router(synthetic.router)

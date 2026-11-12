@@ -36,7 +36,7 @@ def main():
         "capacity_source": "Синтетическое пользовательское допущение",
         "actions": {
             "reserve_ferry": {"delta_tonnes": 20, "source": "Синтетическое допущение А"},
-            "additional_ferry": {"delta_tonnes": 70, "source": "Синтетическое допущение Б"},
+            "additional_ferry": {"delta_tonnes": 70, "source": "Синтетическое допущение В"},
         },
     }
     snapshot = json.loads(request(base + "/comparisons", body))
@@ -54,7 +54,7 @@ def main():
     assert all(r["comparison_id"] == snapshot["comparison_id"] for r in rows)
     html = request(path + "/export?format=html").decode("utf-8")
     assert "Печать / Сохранить в PDF" in html and snapshot["comparison_id"] in html
-    assert "Синтетическое допущение Б" in html
+    assert "Синтетическое допущение В" in html
     request(base + "/comparisons", body | {"region": "kamchatka"}, expected=422)
     if args.expect_llm_disabled:
         for endpoint, payload in (("ask", {"question": "Объясни сравнение"}), ("analysis", {})):

@@ -40,7 +40,8 @@ def load_port_artifact(root: Path = ROOT, model_path: Path | None = None, target
             raise ValueError("Не совпадает SHA-256 модели каботажа")
         artifact = json.loads(body)
         legacy = artifact["schema_version"] == "0.1"
-        if (artifact["schema_version"] not in {"0.1", "0.2"}
+        external = artifact["schema_version"] == "0.3"
+        if (artifact["schema_version"] not in {"0.1", "0.2", "0.3"}
                 or legacy and (artifact["target_id"] != "kaliningrad_port_cabotage" or artifact["observations"] != 36)
                 or artifact["forecast_origin"] != "2025-12" or type(artifact["observations"]) is not int
                 or not 1 <= artifact["observations"] <= 43
@@ -48,7 +49,18 @@ def load_port_artifact(root: Path = ROOT, model_path: Path | None = None, target
                 or target_id and artifact["target_id"] != target_id
                 or pointer and pointer["model_version"] != artifact["model_version"]):
             raise ValueError("Некорректная схема или охват модели каботажа")
-        if not legacy:
+        if external:
+            # Внешняя модель (схема 0.3): готовый прогноз и интервалы; модель здесь не исполняется.
+            from pipeline.port_protocol import TARGETS
+            ext = artifact["external"]
+            if (artifact["target_id"] not in TARGETS
+                    or (artifact["port"], artifact["cargo_group"]) != TARGETS[artifact["target_id"]]
+                    or not all(isinstance(ext.get(k), str) and len(ext[k]) == 64
+                               for k in ("code_sha256", "protocol_sha256", "selection_lock_sha256"))
+                    or ext.get("treatment") != "original_only"
+                    or artifact["training_data_available_by"] > "2026-01-31"):
+                raise ValueError("Внешний артефакт не соответствует цели или происхождению")
+        elif not legacy:
             from ml.port_evaluation import load_port_protocol
             from pipeline.port_protocol import TARGETS
             if (artifact["protocol"] != load_port_protocol() or artifact["target_id"] not in TARGETS

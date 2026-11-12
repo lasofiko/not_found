@@ -13,6 +13,11 @@ backend/**/__pycache__
 ml/**/__pycache__
 !pipeline/
 !pipeline/**
+!docs/
+!docs/jury/
+!docs/jury/*.csv
+!docs/final/
+!docs/final/*.csv
 pipeline/**/__pycache__
 !frontend/
 !frontend/**

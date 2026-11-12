@@ -20,6 +20,9 @@ RUN --mount=from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d
 COPY backend/ ./backend/
 COPY ml/ ./ml/
 COPY pipeline/ ./pipeline/
+# Метрики жюри и итоговых моделей сайта (docs/final): по ним сайт показывает качество месячных моделей.
+COPY docs/jury/ ./docs/jury/
+COPY docs/final/ ./docs/final/
 # Keep build inputs: the backend verifies dist against their SHA-256.
 COPY frontend/ ./frontend/
 COPY --from=frontend-build /app/frontend/dist/ ./frontend/dist/
