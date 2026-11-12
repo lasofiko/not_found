@@ -1,6 +1,5 @@
 """Validated environment settings."""
 
-import ipaddress
 from enum import StrEnum
 from urllib.parse import urlsplit
 
@@ -31,10 +30,6 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)
     llm_access_token: SecretStr = SecretStr("")
     llm_allow_remote: bool = False
-    # Explicit operator opt-in: clients from these networks (e.g. the Docker
-    # bridge gateway) are trusted without a token. Only safe while the published
-    # port is bound to the host's loopback, as in compose.yaml.
-    llm_trusted_networks: list[str] = Field(default_factory=list)
     llm_requests_per_minute: int = Field(default=30, ge=1, le=10000)
     llm_max_concurrent_requests: int = Field(default=2, ge=1, le=100)
     llm_max_tokens: int = Field(default=800, ge=1, le=16000)
@@ -60,14 +55,6 @@ class Settings(BaseSettings):
         ):
             raise ValueError("BB_LLM_BASE_URL: нужна HTTP(S) база API без credentials, query и fragment")
         return value
-
-    @field_validator("llm_trusted_networks")
-    @classmethod
-    def validate_llm_trusted_networks(cls, value: list[str]) -> list[str]:
-        try:
-            return [str(ipaddress.ip_network(item.strip(), strict=False)) for item in value]
-        except ValueError as exc:
-            raise ValueError("BB_LLM_TRUSTED_NETWORKS: нужен JSON-список сетей CIDR, например [\"172.16.0.0/12\"]") from exc
 
     @field_validator("api_prefix")
     @classmethod
