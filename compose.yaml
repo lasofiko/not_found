@@ -13,6 +13,8 @@ services:
     environment:
       BB_ENVIRONMENT: ${BB_ENVIRONMENT:-production}
       BB_API_PREFIX: ${BB_API_PREFIX:-/api/v1}
+      BB_LLM_ACCESS_TOKEN: ${BB_LLM_ACCESS_TOKEN:-}
+      BB_LLM_ALLOW_REMOTE: ${BB_LLM_ALLOW_REMOTE:-false}
     volumes:
       - type: bind
         source: ${BB_MODELS_PATH:-./models}

@@ -10291,6 +10291,29 @@
       "source_key": "list_3014913226554555",
       "url": "https://api.dane.gov.pl/1.4/datasets/2708/resources?per_page=100",
       "usage_rights": "Условия повторного использования не подтверждены; оригинал хранится локально, ссылка и атрибуция сохраняются."
+    },
+    {
+      "cargo_groups": "Все грузы без разбивки в тоннах; отдельно счётчики вагонов и РО-РО",
+      "content_type": "text/html",
+      "direction": "Выгружено / Погружено в Калининграде",
+      "downloaded_at": "2026-11-12T13:27:40+00:00",
+      "encoding": "utf-8",
+      "format": "html",
+      "geography": "ЖДПК в Калининграде и отдельно паромная линия Усть-Луга — Калининград",
+      "limitations": "Узкая линия, не весь коридор. Портовый итог и линия могут различаться. Требуют проверки охват операторов, включение тары и стабильность методики; ряд не утверждён как цель.",
+      "local_path": "data/raw/rosmorport_freight/e43a47fc1be009d780367a662fb677202e9234bbbb8dddd9b1dd7b2f5df362d3.html",
+      "metric": "Объёмы перевалки; для кандидата только строки паромной линии",
+      "mode": "sea",
+      "organization": "ФГУП «Росморпорт», Северо-Западный бассейновый филиал",
+      "original_unit": "тонн",
+      "period": "Годовые таблицы 2011–2023; в кандидат включаются только 2015–2023",
+      "purpose": "target_candidate",
+      "resolved_url": "https://www.rosmorport.ru/filials/spb_serv_freight/",
+      "sha256": "e43a47fc1be009d780367a662fb677202e9234bbbb8dddd9b1dd7b2f5df362d3",
+      "source_id": "rosmorport_freight__e43a47fc1be0",
+      "source_key": "rosmorport_freight",
+      "url": "https://www.rosmorport.ru/filials/spb_serv_freight/",
+      "usage_rights": "Условия повторного использования не подтверждены; оригинал хранится локально, ссылка и атрибуция сохраняются."
     }
   ],
   "failures": [
