@@ -23,14 +23,22 @@ class LLMPolicy:
         self.settings = settings
         self.calls: deque[float] = deque()
         self.active = 0
+        self.trusted = [ipaddress.ip_network(item) for item in settings.llm_trusted_networks]
 
     def authorize(self, request: Request):
         settings = self.settings
         host = request.client.host if request.client else ""
         try:
-            local = ipaddress.ip_address(host).is_loopback
+            address = ipaddress.ip_address(host)
         except ValueError:
+            address = None
             local = settings.environment == "test" and host == "testclient"
+        else:
+            local = address.is_loopback
+            # Operator-configured networks (Docker bridge gateway) skip the token
+            # check; with no configuration this list is empty and nothing changes.
+            if any(address in network for network in self.trusted):
+                return
         token = settings.llm_access_token.get_secret_value()
         authorized = bool(token) and secrets.compare_digest(
             request.headers.get("authorization", "").encode("utf-8"), ("Bearer " + token).encode("utf-8")

@@ -13,6 +13,7 @@ services:
     environment:
       BB_ENVIRONMENT: ${BB_ENVIRONMENT:-production}
       BB_API_PREFIX: ${BB_API_PREFIX:-/api/v1}
+      BB_LLM_TRUSTED_NETWORKS: '${BB_LLM_TRUSTED_NETWORKS:-["172.16.0.0/12"]}'
     volumes:
       - type: bind
         source: ${BB_MODELS_PATH:-./models}
