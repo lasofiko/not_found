@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     log_level: str = "INFO"
+    synthetic_bundle_path: str = ""
 
     # LLM provider settings are server-only and optional: the rest of the app
     # starts and works even when no LLM is configured.

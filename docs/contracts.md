@@ -1,5 +1,60 @@
 # Контракты v0.18
 
+## Изолированная синтетическая генерация v1 (12.11.2026)
+
+Рабочие схемы наблюдений и ML-прогноза не изменены. Новый исследовательский
+комплект создаётся из проверенного ZIP-снимка отдельной командой
+`pipeline.synthetic_run`; план и ограничения — `docs/synthetic-generation-plan.md`.
+Реальные строки находятся исключительно в `reference/real_series.csv`.
+`synthetic.csv` содержит только `status: synthetic`, `result_type: scenario_ensemble`.
+Это возможные траектории перевозимого показателя, не потенциальный спрос,
+не эффект действия и не подключённый ML-прогноз.
+
+Поля синтетической строки: `series_id,region,metric,frequency,direction,mode,
+cargo_group,scope,period,forecast_origin,method,scenario_id,realization_id,value,
+unit,status,result_type,provenance_id,data_version,generator_version`.
+Единица текущей версии — только `tonnes`; неизвестное направление пусто.
+Ключ: `series_id,method,scenario_id,realization_id,period`.
+`forecast_origin` — последний исходный период, включая исторические сценарии;
+поле не означает текущую дату прогноза. Все сценарии парные по реализации.
+`catalog.json` содержит наборы, методы, сценарии, покрытие и ограничения.
+`provenance.json` связывает набор с исходными строками, файлами, паспортами,
+хешами, статусами `observed|estimated` и формулой месячной разности.
+`manifest.json` закрепляет схему, версии, параметры, код и SHA-256 всех выходов.
+`metrics.csv` и `backtest.csv` содержат проверки только на отложенных реальных
+или `estimated` целях; `diagnostics.csv` — описательные проверки траекторий.
+Квантили не имеют подтверждённой частотной калибровки.
+Машиночитаемая схема JSON-строки — `docs/synthetic-row.schema.json`,
+в комплекте — `synthetic.schema.json`. В CSV `value` и `realization_id`
+преобразуются соответственно в число и целое по этой схеме.
+
+Загрузка — только чтение локального комплекта по серверной настройке
+`BB_SYNTHETIC_BUNDLE_PATH`, пустой по умолчанию. Загрузка проверяет SHA-256,
+схему, уникальность ключа, календарь, единицы, статусы, конечность чисел,
+соответствие каталогу и полноту сетки. Произвольные HTTP-пути и загрузка
+непроверенного CSV в наблюдения не поддерживаются.
+
+При стандартном API-префиксе добавлены:
+
+| Маршрут GET | Назначение |
+|---|---|
+| `/api/v1/synthetic/catalog` | Фильтры `region,metric`, методы, сценарии, ограничения |
+| `/api/v1/synthetic/realizations` | Фильтры `region,metric,series_id,method,scenario_id,realization_id`, пагинация `offset,limit` |
+| `/api/v1/synthetic/summary` | Те же фильтры без realization_id; `aggregation=period|horizon`; среднее, std, p05/p50/p95 отдельно для каждого ряда/метода/сценария |
+| `/api/v1/synthetic/compare` | Метрики с окнами, baseline, рекомендации и сводки сумм горизонта отдельно по методам/сценариям |
+| `/api/v1/synthetic/provenance` | Паспорта и происхождение отобранных рядов |
+| `/api/v1/synthetic/export` | CSV или JSON всей отобранной синтетической выборки (`format=csv|json`) |
+
+JSON-ответы содержат `status,result_type,unit,period,data_version,generator_version,
+warnings,provenance_ids,data`; реализации также `total,offset,limit`.
+`summary` не складывает разные группы, направления и регионы. `horizon`
+сначала суммирует периоды каждой реализации, затем вычисляет распределение сумм.
+CSV сохраняет все поля строк и ссылки на происхождение; источник раскрывается
+через `/provenance` и локальный комплект. Пустой результат фильтра — HTTP 404,
+отключённый комплект — 503 `SYNTHETIC_NOT_CONFIGURED`, повреждённый — 503
+`SYNTHETIC_INVALID`, неверный параметр — 422 в существующем формате ошибок.
+Функция независима от `/forecasts`; основное ML-обучение не запускается.
+
 ## Актуальный локальный снимок данных (12.11.2026)
 
 `python -m pipeline.current_snapshot` упаковывает текущие локальные `data/raw`,

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FloCast synthetic scenario row v1",
+  "description": "Синтетическая сценарная реализация; не наблюдение и не подтверждённый прогноз.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["series_id", "region", "metric", "frequency", "direction", "mode", "cargo_group", "scope", "period", "forecast_origin", "method", "scenario_id", "realization_id", "value", "unit", "status", "result_type", "provenance_id", "data_version", "generator_version"],
+  "properties": {
+    "series_id": {"type": "string", "minLength": 1},
+    "region": {"enum": ["kaliningrad", "kamchatka", "primorye"]},
+    "metric": {"enum": ["ferry_line_mass", "port_cabotage_mass", "airport_cargo", "rail_transit_via_belarus"]},
+    "frequency": {"enum": ["year", "month"]},
+    "direction": {"enum": ["", "inbound", "outbound"]},
+    "mode": {"enum": ["sea", "rail_land", "road", "air"]},
+    "cargo_group": {"type": "string"},
+    "scope": {"type": "string", "minLength": 1},
+    "period": {"type": "string", "pattern": "^[0-9]{4}(-(0[1-9]|1[0-2]))?$"},
+    "forecast_origin": {"type": "string", "pattern": "^[0-9]{4}(-(0[1-9]|1[0-2]))?$"},
+    "method": {"enum": ["template_scale", "iid_increment_bootstrap", "block_increment_bootstrap", "seasonal_residual_bootstrap"]},
+    "scenario_id": {"enum": ["reference", "scale_down", "scale_up"]},
+    "realization_id": {"type": "integer", "minimum": 0},
+    "value": {"type": "number", "minimum": 0},
+    "unit": {"const": "tonnes"},
+    "status": {"const": "synthetic"},
+    "result_type": {"const": "scenario_ensemble"},
+    "provenance_id": {"type": "string", "minLength": 1},
+    "data_version": {"type": "string", "minLength": 1},
+    "generator_version": {"type": "string", "minLength": 1}
+  }
+}

@@ -13,6 +13,13 @@ build/
 .env
 .env.*
 !.env.example
+# Архивы передачи и исходные исследовательские таблицы остаются локальными.
+*.zip
+*.7z
+*.rar
+*.zip.sha256
+/block-*-facts-*.csv
+/block-*-capacity-*.csv
 data/raw/**
 data/interim/**
 data/processed/**

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from backend.api.v1 import config, forecasts, health, legacy_capacity, llm, scenarios, status
+from backend.api.v1 import config, forecasts, health, legacy_capacity, llm, scenarios, status, synthetic
 from backend.schemas.common import ErrorResponse
 
 router = APIRouter(
@@ -20,3 +20,4 @@ router.include_router(legacy_capacity.router)
 router.include_router(forecasts.router)
 router.include_router(scenarios.router)
 router.include_router(llm.router)
+router.include_router(synthetic.router)
