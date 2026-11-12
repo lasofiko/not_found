@@ -87,9 +87,12 @@ def parse_series(rows: list[dict], config: dict) -> dict[str, Series]:
 
 def load_dataset(root: Path, config: dict):
     root = root.resolve()
-    errors = verify(root)
+    from pipeline.generation import resolve_data_root
+    data_root = resolve_data_root(root)
+    errors = verify(root, data_root=data_root)
     if errors:
         raise ValueError("Комплект данных не прошёл проверку:\n" + "\n".join(errors[:10]))
+    root = data_root
     manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     relative = "data/processed/candidate_observations.csv"
     if relative not in manifest["outputs"] or manifest["candidate_rows"] != 18:

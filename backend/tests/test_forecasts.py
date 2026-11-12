@@ -1,6 +1,7 @@
 """Контракт прогноза и интеграция с предоставленным модельным комплектом."""
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -29,6 +30,8 @@ def test_missing_model_and_invalid_year(client):
 
 @pytest.fixture
 def provided_model(client, tmp_path: Path):
+    if os.environ.get("RUN_REAL_MODEL_TESTS") != "1":
+        pytest.skip("Реальные модели проверяются отдельно с RUN_REAL_MODEL_TESTS=1; обычный CI использует синтетику")
     pointer_path = ROOT / "models/latest.json"
     if not pointer_path.exists():
         pytest.skip("Интеграционный тест требует предоставленный реальный комплект models")

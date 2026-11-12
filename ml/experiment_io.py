@@ -20,6 +20,9 @@ def saved_time(path: Path):
 
 def save_model(path: Path, artifact: dict):
     json.dumps(artifact, allow_nan=False)
+    payload = json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if path.exists() and path.read_bytes() != payload.encode("utf-8"):
+        raise ValueError("Опубликованная версия модели неизменяема")
     write_json(path, artifact)
     sha = digest(path.read_bytes())
     path.with_suffix(".json.sha256").write_text(sha + "\n", encoding="utf-8")

@@ -84,6 +84,8 @@ def _read(path: Path) -> list[dict]:
 
 
 def _terminal_values(root: Path) -> dict[int, tuple[float, str]]:
+    from pipeline.generation import resolve_data_root
+    root = resolve_data_root(root)
     processed = root / "data/processed"
     values = {}
     for row in _read(processed / "context_observations.csv"):
@@ -115,6 +117,6 @@ def terminal_check(root: Path, series: dict, forecasts: dict) -> list[dict]:
         reference, source = terminal[year]
         rows.append({"period": year, "line_kind": kind, "line_tonnes": value, "terminal_tonnes": reference,
                      "difference_tonnes": value - reference,
-                     "difference_percent": 100 * (value - reference) / reference,
+                     "difference_percent": 100 * (value - reference) / reference if reference else None,
                      "terminal_source": source, "role": "external_check_not_used_for_training_or_selection"})
     return rows

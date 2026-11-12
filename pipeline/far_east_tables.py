@@ -89,7 +89,7 @@ def normalize_unit(unit):
 def period_info(label, year_hint=""):
     """Возвращаем действительный интервал; не распределяем накопление по месяцам."""
     label = clean(label).lower()
-    dates = re.fullmatch(r"(\d{2})\.(\d{2})\.(\d{4})\s*-\s*(\d{2})\.(\d{2})\.(\d{4})", label)
+    dates = re.fullmatch(r"(\d{2})\.(\d{2})\.(\d{4})\s*[-–—]\s*(\d{2})\.(\d{2})\.(\d{4})", label)
     if dates:
         d1, m1, y1, d2, m2, y2 = map(int, dates.groups())
         start, end = date(y1, m1, d1), date(y2, m2, d2)
@@ -97,30 +97,37 @@ def period_info(label, year_hint=""):
             raise ValueError("Начало периода позже окончания")
         if start == date(y1, 1, 1) and end == date(y1, 12, 31):
             return str(y1), "year", start.isoformat(), end.isoformat(), "annual"
-        if start == date(y1, 1, 1) and y1 == y2:
-            return f"{y2}-{m2:02}", "month", start.isoformat(), end.isoformat(), "year_to_date"
-        return "", "", start.isoformat(), end.isoformat(), "unresolved"
+        if y1 == y2 and m1 == m2 and d1 == 1 and d2 == calendar.monthrange(y2, m2)[1]:
+            return f"{y2}-{m2:02}", "month", start.isoformat(), end.isoformat(), "monthly"
+        basis = "year_to_date" if start == date(y1, 1, 1) and y1 == y2 else "interval"
+        return f"{y2}-{m2:02}", "interval", start.isoformat(), end.isoformat(), basis
     years = re.findall(r"\b(19\d{2}|20\d{2})\b", label)
+    if len(set(years)) > 1:
+        return None
     year = years[-1] if years else str(year_hint)
     if not year:
         return None
     q = re.search(r"([1-4])\s*квартал", label)
+    months = [MONTHS.index(m) + 1 for m in re.findall("|".join(MONTHS), label)]
+    if q and months:
+        return None  # Перечень квартала и накопления не описывает один период.
     if q:
         first, last = (int(q[1]) - 1) * 3 + 1, int(q[1]) * 3
         return (
             f"{year}-{last:02}",
-            "month",
+            "quarter",
             f"{year}-{first:02}-01",
             f"{year}-{last:02}-{calendar.monthrange(int(year), last)[1]}",
             "quarter",
         )
-    months = [MONTHS.index(m) + 1 for m in re.findall("|".join(MONTHS), label)]
     if months:
         start, end = months[0], months[-1]
-        basis = "year_to_date" if len(months) > 1 and start == 1 else "monthly"
+        if start > end:
+            raise ValueError("Начало периода позже окончания")
+        basis = "monthly" if start == end else "year_to_date" if start == 1 else "interval"
         return (
             f"{year}-{end:02}",
-            "month",
+            "month" if basis == "monthly" else "interval",
             f"{year}-{start:02}-01",
             f"{year}-{end:02}-{calendar.monthrange(int(year), end)[1]}",
             basis,

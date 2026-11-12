@@ -106,7 +106,8 @@ def longest_run(rows):
 
 
 def read_history(root):
-    root = Path(root).resolve()
+    from pipeline.generation import resolve_data_root
+    root = resolve_data_root(root)
     path = root / "data/processed/port_cabotage_cumulative.csv"
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = [r for r in csv.DictReader(stream) if r["period"] < "2026"]
@@ -161,10 +162,12 @@ def prepare_protocol(root):
 
 def load_protocol_series(root, target_id="kaliningrad_ferries"):
     from pipeline.verify import verify
-    errors = verify(Path(root))
+    from pipeline.generation import resolve_data_root
+    data_root = resolve_data_root(root)
+    errors = verify(Path(root), data_root=data_root)
     if errors:
         raise ValueError("Комплект не прошёл проверку: " + "; ".join(errors[:5]))
-    cumulative, manifest, artifacts = read_history(root)
+    cumulative, manifest, artifacts = read_history(data_root)
     versions, issues = derive_versions(cumulative, artifacts, manifest["data_version"], target_id)
     rows = series_asof(versions, target_id)
     if not any(r["value_tonnes"] != "" for r in rows):

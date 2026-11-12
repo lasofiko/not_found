@@ -43,6 +43,8 @@ def artifact(root, pointer_path):
 
 def verify_annual_inputs(root, model):
     """Различие версий документов не разрешает различие наблюдений модели."""
+    from pipeline.generation import resolve_data_root
+    root = resolve_data_root(root)
     rows = read_csv(root / "data/processed/candidate_observations.csv")
     for direction, saved in model["directions"].items():
         actual = sorted((r for r in rows if r["direction"] == direction), key=lambda r: r["period"])
@@ -102,9 +104,25 @@ def export_jury(root, hypotheses_dir):
     review = read_json(root / "data/review-status.json")
     if review["status"] != "partial" or review["reviewer"] != "Петя":
         raise ValueError("Проверьте актуальное подтверждение ручной сверки")
-    annual, annual_pointer = artifact(root, root / "models/latest.json")
-    verify_annual_inputs(root, annual)
     hypothesis_manifest = read_json(hypotheses_dir / "run_manifest.json")
+    basis = hypothesis_manifest.get("input_identity", {}).get("model_basis")
+    if basis is None:
+        basis = hypothesis_manifest.get("fingerprint", {}).get("input_identity", {}).get("model_basis")
+    if not basis:
+        raise ValueError("Не доказана связь сценариев с конкретной моделью; нужен сохранённый model_basis")
+    fingerprint = hypothesis_manifest.get("fingerprint", {})
+    if (fingerprint.get("input_identity") != hypothesis_manifest.get("input_identity") or
+            hypothesis_manifest.get("report_version") != hypotheses_dir.name or
+            hypotheses_dir.name != "bb-hyp-" + digest(json.dumps(
+                fingerprint, sort_keys=True, ensure_ascii=False, allow_nan=False).encode())[:12]):
+        raise ValueError("Версия исследования не подтверждает сохранённый model_basis")
+    path = (root / basis["model_path"]).resolve()
+    if not path.is_relative_to(root / "models") or digest(path.read_bytes()) != basis["sha256"]:
+        raise ValueError("Модель сценариев не прошла проверку SHA-256")
+    annual, annual_pointer = read_json(path), basis
+    if annual["model_version"] != basis["model_version"]:
+        raise ValueError("Версия модели сценариев не совпадает с сохранённой основой")
+    verify_annual_inputs(root, annual)
     for name in ("action_scenarios.csv", "hypothesis_results.csv"):
         if digest((hypotheses_dir / name).read_bytes()) != hypothesis_manifest["outputs"][name]:
             raise ValueError("Результат гипотез не прошёл проверку SHA-256: " + name)

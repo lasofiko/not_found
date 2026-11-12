@@ -168,8 +168,10 @@ def extract_ports(root, version):
     return rows, issues
 
 
-def september_check(root):
+def september_check(root, *, allow_blind=False):
     """Открывает ровно два нужных выпуска; возвращает только текст и локаторы."""
+    if not allow_blind:
+        raise ValueError("Чтение закрытых фактов требует явного разрешения отдельной blind-проверки")
     registry = load_registry(root)
     selected = []
     for month in (8, 9):
@@ -216,7 +218,11 @@ def prepare_sources(root, version):
     rows, issues = extract_ports(root, version)
     write_csv(root / RAW_TABLE, PORT_FIELDS, rows)
     write_csv(root / "data/processed/port_protocol/extraction_issues.csv", ["source_id", "issue"], issues)
-    write_json(root / "data/processed/port_protocol/september_check.json", september_check(root))
+    # Обычная сборка не повторяет уже закрытую числовую проверку.
+    saved_check = root / "data/processed/port_protocol/september_check.json"
+    if not saved_check.exists():
+        write_json(saved_check, {"result": "не выполнялась: закрытые факты не открывались", "sources": [],
+                                 "check_actor": "automated", "blind_check_run": False})
     registry = {a["source_id"]: a for a in load_registry(root)}
     with (root / "data/processed/port_cabotage_cumulative.csv").open(encoding="utf-8-sig", newline="") as stream:
         kaliningrad = [r for r in csv.DictReader(stream) if r["port"] == "Порт Калининград"
@@ -339,9 +345,17 @@ def verify_generated(root, manifest):
     cumulative, _ = extract_ports(root, manifest["data_version"])
     if read_rows(Path(root) / RAW_TABLE) != cumulative:
         errors.append("Портовые накопления отличаются от ячеек оригиналов")
-    actual_check = json.loads((Path(root) / "data/processed/port_protocol/september_check.json").read_text())
-    if actual_check != september_check(root):
-        errors.append("Диагностика сентября отличается от первоисточников")
+    check_path = "data/processed/port_protocol/september_check.json"
+    actual_check = json.loads((Path(root) / check_path).read_text(encoding="utf-8"))
+    # Сохранённый редактированный результат и паспорта, без повторного парсинга 2026.
+    if digest((Path(root) / check_path).read_bytes()) != manifest.get("generated_outputs", {}).get(check_path):
+        errors.append("Изменена сохранённая диагностика сентября")
+    registry = {a["source_id"]: a for a in load_registry(root)}
+    if actual_check.get("blind_check_run") not in {False, None}:
+        errors.append("Диагностика сентября имеет неизвестный статус")
+    for source in actual_check.get("sources", []):
+        if registry.get(source["source_id"], {}).get("sha256") != source["sha256"]:
+            errors.append("Происхождение сохранённой диагностики сентября изменилось")
     regional, _ = regional_cabotage(root, manifest["data_version"])
     if read_rows(Path(root) / "data/processed/port_protocol/regional_kaliningrad_cabotage.csv") != regional:
         errors.append("Региональный каботаж отличается от исходного CSV зеркала")

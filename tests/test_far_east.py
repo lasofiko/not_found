@@ -78,11 +78,25 @@ class MeasurementTests(unittest.TestCase):
     def test_ytd_quarter_and_annual_keep_distinct_intervals(self):
         ytd = period_info("01.01.2020-30.06.2020")
         quarter = period_info("2 квартал", "2020")
-        self.assertEqual(ytd, ("2020-06", "month", "2020-01-01", "2020-06-30", "year_to_date"))
-        self.assertEqual(quarter, ("2020-06", "month", "2020-04-01", "2020-06-30", "quarter"))
+        self.assertEqual(ytd, ("2020-06", "interval", "2020-01-01", "2020-06-30", "year_to_date"))
+        self.assertEqual(quarter, ("2020-06", "quarter", "2020-04-01", "2020-06-30", "quarter"))
         self.assertEqual(period_info("01.01.2020-31.12.2020")[1], "year")
         with self.assertRaises(ValueError):
             period_info("01.01.2020-31.02.2020")
+
+    def test_named_and_arbitrary_ranges_do_not_become_monthly_observations(self):
+        self.assertEqual(period_info("июль–сентябрь 2020"),
+                         ("2020-09", "interval", "2020-07-01", "2020-09-30", "interval"))
+        self.assertEqual(period_info("январь–сентябрь 2020")[1::3], ("interval", "year_to_date"))
+        self.assertEqual(period_info("июль 2020"),
+                         ("2020-07", "month", "2020-07-01", "2020-07-31", "monthly"))
+        self.assertEqual(period_info("15.07.2020–21.09.2020"),
+                         ("2020-09", "interval", "2020-07-15", "2020-09-21", "interval"))
+        self.assertEqual(period_info("01.07.2020-31.07.2020")[4], "monthly")
+        for label in ("сентябрь–июль 2020", "21.09.2020-15.07.2020"):
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                period_info(label)
+        self.assertIsNone(period_info("июль 2019 и сентябрь 2020"))
 
     def test_vintage_and_historical_geography_are_not_silently_merged(self):
         args = (
@@ -183,7 +197,7 @@ class HandoffTests(unittest.TestCase):
                 panel = list(csv.DictReader(f))
             self.assertTrue(all(r["rail_dispatch_tonnes"] == "" for r in panel))
             self.assertTrue(all(r["road_freight_tonnes"] == "2500000" for r in panel))
-            registry = json.loads((out / "source_registry.json").read_text())
+            registry = json.loads((out / "source_registry.json").read_text(encoding="utf-8"))
             self.assertEqual(len(registry["artifacts"]), 2)  # ZIP плюс одни уникальные байты CSV.
             with (out / "transport_long.csv").open("a") as f:
                 f.write("\n")

@@ -26,6 +26,7 @@ export function CapacityCalculator() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (pending.current) return
+    if (!event.currentTarget.reportValidity()) return
     const data = new FormData(event.currentTarget)
     const controller = new AbortController()
     pending.current = controller

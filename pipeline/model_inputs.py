@@ -49,10 +49,13 @@ def source_available_by(artifact: dict) -> str:
     return month_end("-".join(found.groups()))
 
 
-def verified_context(root: Path, required: list[str]):
-    errors = verify(root)
+def verified_context(root: Path, required: list[str], *, data_root=None):
+    from pipeline.generation import resolve_data_root
+    data_root = data_root or resolve_data_root(root)
+    errors = verify(root, data_root=data_root)
     if errors:
         raise ValueError("Комплект не прошёл проверку: " + "; ".join(errors[:5]))
+    root = data_root
     manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     for name in required:
         if "data/processed/" + name not in manifest["outputs"]:
@@ -122,7 +125,10 @@ def derive_port_series(cumulative: list[dict], artifacts: dict, data_version: st
 
 def load_port_series(root: Path):
     root = Path(root).resolve()
-    manifest, artifacts = verified_context(root, ["port_cabotage_cumulative.csv"])
+    from pipeline.generation import resolve_data_root
+    data_root = resolve_data_root(root)
+    manifest, artifacts = verified_context(root, ["port_cabotage_cumulative.csv"], data_root=data_root)
+    root = data_root
     path = root / "data/processed/port_cabotage_cumulative.csv"
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = derive_port_series(list(csv.DictReader(stream)), artifacts, manifest["data_version"])
@@ -139,6 +145,8 @@ def load_extended_line(root: Path):
     from ml.data import load_config, load_dataset
     root = Path(root).resolve()
     original, provenance = load_dataset(root, load_config())
+    from pipeline.generation import resolve_data_root
+    root = resolve_data_root(root)
     source = provenance["sources"][0]
     path = verify_artifact(root, source)
     rows, _ = extract_freight(path.read_text(encoding="utf-8"), range(2011, 2024))

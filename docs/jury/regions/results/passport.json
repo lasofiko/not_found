@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "result_version": null,
+  "preserved_outputs_version": "43e6b268a6e0a0f060e2ac9d4af709385670b277c2f55a9ef6c7030d27d94058",
+  "generated_at": null,
+  "catalogued_on": "2026-11-12",
+  "provenance_status": "legacy_unverified_input",
+  "evaluation_status": "retrospective_available_vintage",
+  "unit": "percentage_points",
+  "source": {
+    "organization": "Росстат, ЕМИСС",
+    "indicator_id": "31052",
+    "url": "https://www.fedstat.ru/indicator/31052",
+    "declared_snapshot_date": "2026-10-12",
+    "snapshot_date_basis": "Дата выгрузки заявлена исходным протоколом; исторические публикации не подтверждены.",
+    "publication_dates": null,
+    "vintage_verified": false
+  },
+  "input": {
+    "path": "data/processed/not_found_additions/open_data_2026-11-10/emiss_fixed_basket_monthly_wide.csv",
+    "sha256": null,
+    "identity_status": "not_recorded_for_legacy_result"
+  },
+  "protocol": {
+    "path": "docs/jury/regions/price-premium-protocol.md",
+    "sha256": null,
+    "windows": {
+      "selection": [
+        "2023-10",
+        "2024-09"
+      ],
+      "holdout": [
+        "2024-10",
+        "2025-09"
+      ],
+      "final": [
+        "2025-10",
+        "2026-09"
+      ]
+    },
+    "methods": [
+      "naive",
+      "seasonal_naive",
+      "drift",
+      "ses"
+    ],
+    "horizons": [
+      1,
+      3,
+      12
+    ]
+  },
+  "implementation": {
+    "path": "docs/jury/regions/price_premium.py",
+    "sha256": null,
+    "python_version": null
+  },
+  "reproduction_reference": {
+    "status": "current_code_and_documentation_not_proven_original_run",
+    "protocol_sha256": "23bd55d621fbf15028bd0f047660ad358104efea61c9b1b10be2a71cc0edb56a",
+    "implementation_sha256": "732fbf5149db3308633eaf3d1d81bedc9a1db8ee9fa3b239713f96b84e297510"
+  },
+  "limitations": [
+    "Исторические даты доступности и версии публикаций не подтверждены; это ретроспективная проверка доступной версии данных, не имитация real-time.",
+    "Уточнённые значения 2025 года используются в доступной выгрузке; их исходные исторические версии не восстановлены.",
+    "Итоговое окно не является слепой проверкой: значения находились в одном входном файле.",
+    "Надбавка фиксированного набора не равна цене доставки и не доказывает причинное влияние транспорта.",
+    "Знаменатель меняет территориальный охват с января 2023 года; возможен сдвиг уровня.",
+    "Эмпирическое покрытие интервалов не проверено; ошибки относятся к указанным ретроспективным окнам, не гарантируют будущую точность.",
+    "SHA-256 исходного входа, кода и протокола старого запуска не сохранялись. Связь с текущим входным CSV не восстановлена; новое обучение, расчет и просмотр чисел не выполнялись."
+  ],
+  "outputs": {
+    "metrics.csv": "6d9b1b106de44305017d8baa7e3230f509c62db9bf845487b996387618b03864",
+    "forecast.csv": "8354b906bf827917fc994ee2f76cf9e13df6c0c4d562058e46b18b7e61bb6d07",
+    "history.csv": "feb93327fa06c490023e4eaab6ea3ab6a4acfc0821932ef8b9325ec8c52c89f3",
+    "price-premium.png": "90c46a88972c6bedf4cf76b33de7757943e1ba1cd1758c7e735732c35de2ec2b"
+  }
+}

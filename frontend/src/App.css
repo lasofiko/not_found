@@ -304,7 +304,8 @@ dialog::backdrop { background: var(--overlay); backdrop-filter: blur(5px); }
 .chat-submit:hover:not(:disabled) { transform: scale(1.05); }
 .chat-submit:disabled { opacity: .45; cursor: not-allowed; }
 .chat-hint { display: block; margin-top: 8px; font-size: 9px; color: var(--text-tertiary); line-height: 1.4; text-align: center; }
-.assistant-backdrop { display: none; }
+.assistant-backdrop { position: fixed; inset: 0; z-index: 59; display: block; border: 0; background: var(--overlay); backdrop-filter: blur(3px); }
+.assistant-panel[hidden] { display: none; }
 
 .geography-controls { margin-bottom:20px; }
 .corridor-fields, .endpoint-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
