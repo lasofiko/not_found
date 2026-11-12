@@ -1,6 +1,7 @@
 """Validated environment settings."""
 
 from enum import StrEnum
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
@@ -21,6 +22,12 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     log_level: str = "INFO"
+    synthetic_path: Path | None = None
+
+    @field_validator("synthetic_path", mode="before")
+    @classmethod
+    def validate_synthetic_path(cls, value):
+        return None if value is None or value == "" else value
 
     # LLM provider settings are server-only and optional: the rest of the app
     # starts and works even when no LLM is configured.
