@@ -9,11 +9,14 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from backend.adapters.llm import LLMGatewayAdapter
 from backend.api.router import router
+from backend.comparisons import ComparisonError, ComparisonStore
 from backend.core.exceptions import register_exception_handlers
 from backend.core.settings import Settings
+from backend.decision_analysis import DecisionAnalysisWorkflow
 from backend.forecast_service import ForecastService
 from backend.frontend import FrontendFiles
 from backend.infrastructure.llm_client import OpenAILLMClient
+from backend.llm_policy import LLMPolicy, LLMPolicyError, policy_error_response
 from backend.redirects import legacy_dashboard_location
 from backend.use_cases.llm import AskTransportAssistant
 
@@ -29,9 +32,13 @@ def _build_llm_use_case(settings: Settings, forecast_service: ForecastService) -
         api_key=settings.llm_api_key,
         model=settings.llm_model,
         timeout_seconds=settings.llm_timeout_seconds,
+        max_tokens=settings.llm_max_tokens,
+        max_answer_chars=settings.llm_max_answer_chars,
     )
     llm_gateway = LLMGatewayAdapter(client)
-    return AskTransportAssistant(forecast_service, llm_gateway)
+    return AskTransportAssistant(
+        forecast_service, llm_gateway, summary_cache_ttl=settings.llm_summary_cache_ttl_seconds
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -40,16 +47,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.basicConfig(level=config.log_level)
     application = FastAPI(title=config.app_name, version="0.2.0")
     application.state.settings = config
+    application.state.llm_policy = LLMPolicy(config)
     application.state.forecast_service = ForecastService()
+    application.state.comparison_store = ComparisonStore()
+    application.state.decision_analysis = DecisionAnalysisWorkflow()
     application.state.llm_use_case = _build_llm_use_case(config, application.state.forecast_service)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=config.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
     )
     register_exception_handlers(application)
+    application.add_exception_handler(LLMPolicyError, policy_error_response)
+
+    async def comparison_error_response(_request, exc: ComparisonError):
+        from backend.core.exceptions import error_response
+
+        return error_response(exc.status, exc.code, exc.message)
+
+    application.add_exception_handler(ComparisonError, comparison_error_response)
     application.include_router(router, prefix=config.api_prefix)
 
     @application.middleware("http")

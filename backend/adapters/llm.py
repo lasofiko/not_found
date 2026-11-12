@@ -13,8 +13,10 @@ class LLMGatewayAdapter(LLMGateway):
     def __init__(self, client: OpenAILLMClient) -> None:
         self._client = client
 
-    async def ask(self, context: str, question: str) -> str:
+    async def ask(self, context: str, question: str, *, system_prompt: str | None = None) -> str:
         try:
-            return await self._client.ask(context, question)
+            if system_prompt is None:
+                return await self._client.ask(context, question)
+            return await self._client.ask(context, question, system_prompt=system_prompt)
         except LLMClientError as exc:
             raise LLMUpstreamError(str(exc)) from exc

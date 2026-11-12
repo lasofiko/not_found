@@ -70,7 +70,7 @@ class Builder:
         self.sources, self.inventory, self.catalog, self.issues = {}, [], [], []
         self.transport, self.regional, self.customs = [], [], []
         old = self.out / "source_registry.json"
-        self.old_sources = {a["sha256"]: a for a in json.loads(old.read_text())["artifacts"]} if old.exists() else {}
+        self.old_sources = {a["sha256"]: a for a in json.loads(old.read_text(encoding="utf-8"))["artifacts"]} if old.exists() else {}
         self.archive_sha = file_hash(archive)
         code_sha = {p: file_hash(root / p) for p in CODE}
         seed = json.dumps([VERSION, self.archive_sha, code_sha], sort_keys=True)
@@ -145,7 +145,7 @@ class Builder:
                 )
 
     def regional_csv(self, path, source, nested=False):
-        with path.open(encoding="utf-8-sig", newline="") as stream:
+        with path.open(encoding=source.get("encoding") or "utf-8-sig", newline="") as stream:
             reader = csv.DictReader(stream, delimiter=";" if nested else ",")
             for n, r in enumerate(reader, 2):
                 geo = geography(r["object_name"] if nested else r["region"])
@@ -630,14 +630,14 @@ class Builder:
 
 def verify(root):
     out = root / OUTPUT
-    m = json.loads((out / "manifest.json").read_text())
+    m = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     errors = []
     for group in ("inputs", "outputs", "code"):
         for relative, expected in m[group].items():
             path = (root / relative).resolve()
             if not path.is_relative_to(root.resolve()) or not path.is_file() or file_hash(path) != expected:
                 errors.append(f"SHA-256/путь: {relative}")
-    registry = json.loads((out / "source_registry.json").read_text())
+    registry = json.loads((out / "source_registry.json").read_text(encoding="utf-8"))
     sources = {a["source_id"]: a for a in registry["artifacts"]}
     if len(sources) != len(registry["artifacts"]):
         errors.append("Повтор source_id в реестре")
@@ -715,7 +715,7 @@ def verify(root):
                     errors.append(f"Ячейка оригинала отличается: {sid}: {locator}")
         elif path.suffix == ".csv":
             nested = source["original_filename"].startswith("section_")
-            with path.open(encoding="utf-8-sig", newline="") as stream:
+            with path.open(encoding=source.get("encoding") or "utf-8-sig", newline="") as stream:
                 for n, original in enumerate(csv.DictReader(stream, delimiter=";" if nested else ","), 2):
                     prefix = f"csv:row={n}"
                     if prefix in cells:
@@ -752,8 +752,8 @@ def package(root):
     errors = verify(root)
     if errors:
         raise ValueError("\n".join(errors[:20]))
-    manifest = json.loads((root / OUTPUT / "manifest.json").read_text())
-    registry = json.loads((root / OUTPUT / "source_registry.json").read_text())
+    manifest = json.loads((root / OUTPUT / "manifest.json").read_text(encoding="utf-8"))
+    registry = json.loads((root / OUTPUT / "source_registry.json").read_text(encoding="utf-8"))
     parent = next(a for a in registry["artifacts"] if a["source_id"] == manifest["archive_source_id"])
     paths = (
         set(manifest["outputs"]) | set(manifest["code"]) | {parent["local_path"], (OUTPUT / "manifest.json").as_posix()}

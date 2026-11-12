@@ -37,6 +37,11 @@ TRANSIT_SUMMARY_FIELDS = ["period", "origin_country_code", "destination_country_
                           "item_net_sum_tonnes", "source_id", "quality_note"]
 ISSUE_FIELDS = ["dataset", "source_locator", "issue", "related_locator"]
 XLRD_SHA256 = "ea762c3d29f4cca48d82df517b6d89fbce4db3107f9d78713e48cd321d5c9aa9"
+# Ограничения проверяются по каталогу ZIP до чтения XML в память.
+XLSX_MAX_UNPACKED_BYTES = 256 * 1024**2
+XLSX_MAX_XML_BYTES = 128 * 1024**2
+XLSX_MAX_XML_MEMBER_BYTES = 32 * 1024**2
+XLSX_MAX_MEMBERS = 10000
 
 
 def text(value) -> str:
@@ -74,12 +79,35 @@ def read_xlsx(path: Path) -> list[tuple[str, dict]]:
     ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
     rid = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
     with ZipFile(path) as archive:
+        members = archive.infolist()
+        if len(members) > XLSX_MAX_MEMBERS or len({m.filename for m in members}) != len(members):
+            raise ValueError("XLSX: слишком много вложений или повтор имён")
+        xml_members = [m for m in members if m.filename.lower().endswith((".xml", ".rels"))]
+        if sum(m.file_size for m in members) > XLSX_MAX_UNPACKED_BYTES:
+            raise ValueError("XLSX: превышен суммарный предел распаковки")
+        if sum(m.file_size for m in xml_members) > XLSX_MAX_XML_BYTES:
+            raise ValueError("XLSX: превышен суммарный предел XML")
+        if any(m.file_size > XLSX_MAX_XML_MEMBER_BYTES for m in xml_members):
+            raise ValueError("XLSX: превышен предел размера XML-вложения")
+
+        def xml(name):
+            member = archive.getinfo(name)
+            if member.file_size > XLSX_MAX_XML_MEMBER_BYTES:
+                raise ValueError("XLSX: превышен предел размера XML-вложения")
+            with archive.open(member) as stream:
+                payload = stream.read(XLSX_MAX_XML_MEMBER_BYTES + 1)
+            if len(payload) > XLSX_MAX_XML_MEMBER_BYTES:
+                raise ValueError("XLSX: превышен предел размера XML-вложения")
+            if re.search(br"<!\s*(?:DOCTYPE|ENTITY)\b", payload.replace(b"\x00", b""), re.I):
+                raise ValueError("XLSX: объявления DTD и сущностей запрещены")
+            return ET.fromstring(payload)
+
         strings = []
         if "xl/sharedStrings.xml" in archive.namelist():
             strings = ["".join(t.text or "" for t in item.findall(".//s:t", ns))
-                       for item in ET.fromstring(archive.read("xl/sharedStrings.xml")).findall("s:si", ns)]
-        rels = {r.attrib["Id"]: r.attrib["Target"] for r in ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))}
-        sheets = ET.fromstring(archive.read("xl/workbook.xml")).findall("s:sheets/s:sheet", ns)
+                       for item in xml("xl/sharedStrings.xml").findall("s:si", ns)]
+        rels = {r.attrib["Id"]: r.attrib["Target"] for r in xml("xl/_rels/workbook.xml.rels")}
+        sheets = xml("xl/workbook.xml").findall("s:sheets/s:sheet", ns)
         result = []
         for sheet in sheets:
             target = rels[sheet.attrib[rid]]
@@ -87,7 +115,7 @@ def read_xlsx(path: Path) -> list[tuple[str, dict]]:
             if not filename.startswith("xl/"):
                 raise ValueError("Некорректный путь листа XLSX")
             rows = {}
-            for row in ET.fromstring(archive.read(filename)).findall("s:sheetData/s:row", ns):
+            for row in xml(filename).findall("s:sheetData/s:row", ns):
                 cells = {}
                 for cell in row.findall("s:c", ns):
                     value = cell.find("s:v", ns)

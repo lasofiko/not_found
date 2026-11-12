@@ -12,6 +12,7 @@ from ml.experiment_io import fingerprint, finish_manifest, image_tag, number, pa
 from ml.port_evaluation import BACKTEST_FIELDS, evaluate_port, load_port_protocol
 from ml.port_models import bootstrap_predictions, fit_port_model
 from ml.port_predict import PORT_WARNINGS, forecast_port
+from ml.publication import atomic_pointer, publish_directory, staged_generation, verify_report
 from ml.run import library_versions
 from pipeline.common import ROOT, digest, write_csv, write_json
 from pipeline.model_inputs import _mass, month_index, month_period
@@ -134,7 +135,24 @@ def render_report(artifact, output):
           "<a href='metrics.json'>Метрики</a> · <a href='model-card.md'>Паспорт</a></p>")
 
 
+def git_provenance(root):
+    try:
+        return {"git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True,
+                                                     stderr=subprocess.DEVNULL).strip(),
+                "git_tracked_dirty": bool(subprocess.check_output(
+                    ["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, text=True))}
+    except (OSError, subprocess.CalledProcessError):
+        return {"git_commit": None, "git_tracked_dirty": None}
+
+
 def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="kaliningrad_ferries", check_blind=False):
+    root = Path(root).resolve()
+    with staged_generation(root) as staging:
+        return _run_port(root, staging, end_period=end_period, plots=plots, target_id=target_id,
+                         check_blind=check_blind)
+
+
+def _run_port(root, staging, *, end_period, plots, target_id, check_blind):
     if not month_index("2026-01") <= month_index(end_period) <= month_index("2030-12"):
         raise ValueError("Конечный месяц должен быть от 2026-01 до 2030-12")
     if target_id not in TARGETS:
@@ -142,24 +160,23 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
     root = Path(root).resolve()
     protocol = load_port_protocol()
     rows, provenance = load_port_series(root, target_id)
-    try:
-        provenance["git_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
-        provenance["git_tracked_dirty"] = bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, text=True))
-    except (OSError, subprocess.CalledProcessError):
-        provenance["git_commit"], provenance["git_tracked_dirty"] = None, None
+    provenance = {**provenance, **git_provenance(root)}
     libraries = library_versions()
     code = [Path(__file__), *[Path(__file__).with_name(p) for p in (
-        "port_models.py", "port_evaluation.py", "port_predict.py", "port_protocol.toml", "experiment_io.py", "models.py", "blind_binding.py")],
+        "port_models.py", "port_evaluation.py", "port_predict.py", "port_protocol.toml", "experiment_io.py", "models.py", "blind_binding.py", "publication.py")],
         Path(__file__).parents[1] / "pipeline/port_protocol.py",
         Path(__file__).parents[1] / "pipeline/bundle_sources.py",
         Path(__file__).parents[1] / "docs/ml-port-evaluation-protocol.md"]
     data_sha = digest(json.dumps(rows, ensure_ascii=False, sort_keys=True).encode())
     model_version, inputs = fingerprint("bb-port-", {"data_version": provenance["data_version"], "dataset_sha256": data_sha,
-        "target_id": target_id, "protocol": protocol, "libraries": libraries, "plots": plots, "end_period": end_period}, code)
-    output = root / "reports/generated/ml-port" / model_version
+        "target_id": target_id, "protocol": protocol, "libraries": libraries, "plots": plots, "end_period": end_period,
+        "provenance": provenance}, code)
+    final_output = root / "reports/generated/ml-port" / model_version
+    output = staging / "report"
     output.mkdir(parents=True, exist_ok=True)
-    model_path = root / "models/port" / target_id / model_version / "model.json"
-    generated_at = saved_time(model_path)
+    final_model_path = root / "models/port" / target_id / model_version / "model.json"
+    model_path = staging / "models/port/model/model.json"
+    generated_at = saved_time(final_model_path)
     backtest, metrics, chosen = evaluate_port(rows)
     values = [float(r["value_tonnes"]) if r["value_tonnes"] != "" else None for r in rows]
     state = fit_port_model(chosen, values)
@@ -187,7 +204,7 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
         "provenance": provenance, "protocol": protocol, "fingerprint": inputs,
         "selection_lock": selection_lock(target_id, state, naive, rows, protocol)}
     sha = save_model(model_path, artifact)
-    response = forecast_port(end_period, root=root, model_path=model_path)
+    response = forecast_port(end_period, root=staging, model_path=model_path)
     write_csv(output / "training_series.csv", FIELDS, [{k: r.get(k, "") for k in FIELDS} for r in rows])
     tagged = [{**r, "target_id": target_id, "data_version": provenance["data_version"], "model_version": model_version} for r in backtest]
     write_csv(output / "backtest.csv", [*BACKTEST_FIELDS, "target_id", "data_version", "model_version"], tagged)
@@ -229,12 +246,15 @@ def run_port(root: Path = ROOT, *, end_period="2026-12", plots=True, target_id="
         (output / "report.html").write_text(render_report(artifact, output), encoding="utf-8")
     finish_manifest(output, {"model_version": model_version, "data_version": provenance["data_version"],
         "generated_at": generated_at, "model_sha256": sha, "fingerprint": inputs})
-    pointer = {"model_version": model_version, "model_path": model_path.relative_to(root).as_posix(),
-               "sha256": sha, "report_path": output.relative_to(root).as_posix(), "target_id": target_id}
-    write_json(root / "models/port" / target_id / "latest.json", pointer)
+    verify_report(output, model_sha=sha)
+    publish_directory(model_path.parent, final_model_path.parent)
+    publish_directory(output, final_output)
+    pointer = {"model_version": model_version, "model_path": final_model_path.relative_to(root).as_posix(),
+               "sha256": sha, "report_path": final_output.relative_to(root).as_posix(), "target_id": target_id}
+    atomic_pointer(root / "models/port" / target_id / "latest.json", pointer)
     if target_id == "kaliningrad_ferries":
-        write_json(root / "models/port/latest.json", pointer)
-    return {"output_dir": output, "model_version": model_version, "selected_model": chosen, "metrics": metrics}
+        atomic_pointer(root / "models/port/latest.json", pointer)
+    return {"output_dir": final_output, "model_version": model_version, "selected_model": chosen, "metrics": metrics}
 
 
 def main():

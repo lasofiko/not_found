@@ -85,7 +85,12 @@ class DirectoryTests(unittest.TestCase):
                     path.unlink()
                     outside = root / "outside.csv"
                     outside.write_bytes(payload)
-                    path.symlink_to(outside)
+                    try:
+                        path.symlink_to(outside)
+                    except OSError as error:
+                        if getattr(error, 'winerror', None) == 1314:
+                            self.skipTest('Windows не разрешает создание symlink; проверка выхода через .. выполняется отдельно')
+                        raise
                 else:
                     index = json.loads((first / INDEX).read_text())
                     index["files"][0]["path"] = "../outside.csv"
@@ -171,14 +176,19 @@ class ExtractionTests(unittest.TestCase):
             monthly = {**provided[-1], "value": "111111000", "previous_source_id": "synthetic_8", "formula": "synthetic"}
             write_csv(root / "data/processed/port_cabotage_monthly.csv", MONTHLY_FIELDS, [monthly])
             with patch("pipeline.bundle_sources.sheets", side_effect=lambda _, a: books[a["source_id"]]):
-                result = september_check(root)
+                result = september_check(root, allow_blind=True)
                 self.assertEqual(result["result"], "разность верна")
                 self.assertFalse(result["blind_check_run"])
                 self.assertNotIn("112233", json.dumps(result))
                 self.assertNotIn("223344", json.dumps(result))
                 provided[0]["value"] = "0"
                 write_csv(root / "data/processed/port_cabotage_cumulative.csv", PORT_FIELDS, provided)
-                self.assertIn("ошибка", september_check(root)["result"])
+                self.assertIn("ошибка", september_check(root, allow_blind=True)["result"])
+
+    def test_september_requires_explicit_permission_before_reading_sources(self):
+        with patch("pipeline.bundle_sources.load_registry", side_effect=AssertionError("closed")):
+            with self.assertRaisesRegex(ValueError, "явного разрешения"):
+                september_check(Path("."))
 
     def test_regional_cabotage_preserves_accumulation_and_never_emits_future(self):
         with TemporaryDirectory() as temp:
@@ -203,6 +213,53 @@ class ExtractionTests(unittest.TestCase):
 
 
 class EnrichedManifestTests(unittest.TestCase):
+    def test_full_history_chain_verifies_hashes_without_reopening_closed_values(self):
+        from pipeline.acquire import register
+        from pipeline.build import build
+        from pipeline.common import ROOT
+        from pipeline.team_bundle import rebuild_processed
+        from pipeline.verify import verify
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            registered = make_registry(root)
+            history, source_metadata = cumulative_fixture()
+            replacements = {}
+            for sid, metadata in source_metadata.items():
+                artifact = register(root, {**metadata, "source_key": sid, "format": "txt",
+                    "dataset_kind": "synthetic_fixture", "organization": "Синтетическая проверка",
+                    "purpose": "reference", "period": None, "geography": "Только тест", "direction": None,
+                    "mode": "sea", "metric": "Синтетическая перевалка",
+                    "original_unit": "тонн", "limitations": "Не реальные наблюдения"},
+                    b"synthetic original", metadata["url"], "text/plain", "utf-8")
+                registered.append(artifact)
+                replacements[sid] = artifact["source_id"]
+            write_json(root / "data/source_registry.json", {"schema_version": "0.2", "artifacts": registered})
+            (root / "ml").mkdir()
+            shutil.copyfile(ROOT / "ml/port_protocol.toml", root / "ml/port_protocol.toml")
+            original = build(root)
+            rows = [{**dict.fromkeys(PORT_FIELDS, ""), **r, "source_id": replacements[r["source_id"]],
+                     "original_value": r["value"], "original_unit": "тонн", "conversion_factor": "1"}
+                    for r in history]
+            rows.append({**rows[-1], "period": "2026-08", "value": "closed_must_not_be_parsed",
+                         "original_value": "closed_must_not_be_parsed"})
+            relative = "data/processed/port_cabotage_cumulative.csv"
+            write_csv(root / relative, PORT_FIELDS, rows)
+            original["outputs"][relative] = digest((root / relative).read_bytes())
+            original["table_rows"][Path(relative).name] = len(rows)
+            write_json(root / "data/processed/build_manifest.json", original)
+            payloads = {p: (root / p).read_bytes() for p in original["outputs"] if p.startswith("data/processed/")}
+            payloads["data/processed/build_manifest.json"] = (root / "data/processed/build_manifest.json").read_bytes()
+            archive = root / "provided.zip"
+            bundle(archive, payloads)
+            with patch("pipeline.bundle_sources.september_check", side_effect=AssertionError("closed")), patch(
+                    "pipeline.port_protocol.load_blind_cumulatives", side_effect=AssertionError("closed")):
+                rebuild_processed(root, archive, enrich=True)
+                self.assertEqual(verify(root), [])
+                loaded, provenance = load_protocol_series(root)
+            self.assertEqual(len(loaded), 43)
+            self.assertTrue(all(r["period"] < "2026" for r in loaded))
+            self.assertFalse(provenance["blind_2026_loaded"])
+
     def test_generated_tampering_is_detected_even_with_replaced_output_hash(self):
         from pipeline.build import build
         from pipeline.common import ROOT
@@ -242,4 +299,4 @@ class EnrichedManifestTests(unittest.TestCase):
             path.write_bytes(path.read_bytes().replace(b",False", b",True"))
             manifest["generated_outputs"][relative] = digest(path.read_bytes())
             write_json(manifest_path, manifest)
-            self.assertTrue(any("Покрытие" in error for error in verify(root)))
+            self.assertTrue(any("SHA-256" in error and "coverage.csv" in error for error in verify(root)))

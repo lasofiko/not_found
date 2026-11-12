@@ -73,7 +73,7 @@ class Builder:
         self.out.mkdir(parents=True, exist_ok=True)
         self.raw.mkdir(parents=True, exist_ok=True)
         old = self.out / "source_registry.json"
-        self.old = {a["sha256"]: a for a in json.loads(old.read_text())["artifacts"]} if old.exists() else {}
+        self.old = {a["sha256"]: a for a in json.loads(old.read_text(encoding="utf-8"))["artifacts"]} if old.exists() else {}
         self.sources, self.inventory, self.catalog, self.values, self.issues, self.outputs = {}, [], [], [], [], set()
         self.code = {p: sha(root / p) for p in CODE}
         self.comparison = root / "data/source_registry.json"
@@ -143,7 +143,7 @@ class Builder:
         hashes = defaultdict(list)
         if existing and existing.exists():
             snapshot, _ = self.register(existing.read_bytes(), "existing_source_registry.json")
-            for a in json.loads(existing.read_text())["artifacts"]:
+            for a in json.loads(existing.read_text(encoding="utf-8"))["artifacts"]:
                 hashes[a["sha256"]].append(a["source_id"])
         matches = []
         master = self.out / "table_rows.csv"
@@ -421,7 +421,7 @@ class Builder:
 
 def verify(root):
     out = root / OUTPUT
-    manifest = json.loads((out / "manifest.json").read_text())
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     errors = []
     for group in ("inputs", "outputs", "code"):
         for relative, expected in manifest[group].items():
@@ -430,17 +430,23 @@ def verify(root):
                 errors.append(f"SHA-256/путь: {relative}")
     if errors:
         return errors
-    registry = json.loads((out / "source_registry.json").read_text())["artifacts"]
+    registry = json.loads((out / "source_registry.json").read_text(encoding="utf-8"))["artifacts"]
     sources = {a["source_id"]: a for a in registry}
     expected_cells = defaultdict(dict)
     from pipeline.far_east_tables import number
+    from pipeline.kaliningrad_customs import confirmed_unit
 
     for r in read_csv(out / "customs_long.csv"):
         if r["region"] != "kaliningrad" or r["original_geography"] != "Калининградская область":
             errors.append("Неподтверждённая география")
         if r["source_id"] not in sources:
             errors.append("Нет паспорта источника")
-        original = number(r["original_value"], r["conversion_factor"])[0]
+        normalized_unit, factor = confirmed_unit(r["original_unit"])
+        if (r["unit"], r["conversion_factor"]) != (normalized_unit, factor):
+            errors.append("Неподтверждённая единица/масштаб")
+        if not normalized_unit and (r["value"] or "unit_unconfirmed" not in r["quality_flags"]):
+            errors.append("Неизвестная единица должна оставаться без нормализованного значения")
+        original = number(r["original_value"], factor or "1")[0] if normalized_unit else ""
         if "negative_non_balance_value" not in r["quality_flags"] and r["value"] != original:
             errors.append("Неверный пересчёт")
         start, end = date.fromisoformat(r["period_start"]), date.fromisoformat(r["period_end"])
@@ -470,8 +476,8 @@ def package(root):
     errors = verify(root)
     if errors:
         raise ValueError("\n".join(errors[:20]))
-    m = json.loads((root / OUTPUT / "manifest.json").read_text())
-    sources = json.loads((root / OUTPUT / "source_registry.json").read_text())["artifacts"]
+    m = json.loads((root / OUTPUT / "manifest.json").read_text(encoding="utf-8"))
+    sources = json.loads((root / OUTPUT / "source_registry.json").read_text(encoding="utf-8"))["artifacts"]
     paths = set(m["outputs"]) | set(m["code"]) | {(OUTPUT / "manifest.json").as_posix()}
     paths.update(
         a["local_path"]

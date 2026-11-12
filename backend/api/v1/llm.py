@@ -4,10 +4,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
+from backend.llm_policy import assistant_access
 from backend.schemas.llm import AnswerResponse, AssistantSelection, QuestionRequest
 from backend.use_cases.llm import AskTransportAssistant, LLMNotConfiguredError
 
-router = APIRouter(tags=["Transport assistant"])
+router = APIRouter(tags=["Transport assistant"], dependencies=[Depends(assistant_access)])
 
 
 def get_llm_use_case(request: Request) -> AskTransportAssistant:

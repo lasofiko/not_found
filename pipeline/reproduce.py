@@ -9,16 +9,19 @@ from pipeline.verify import verify
 
 
 def reproduce(root: Path) -> dict:
-    errors = verify(root)
+    from pipeline.generation import resolve_data_root, workspace_root
+    root = workspace_root(root)
+    data_root = resolve_data_root(root)
+    errors = verify(root, data_root=data_root)
     if errors:
         raise ValueError("\n".join(errors))
-    before = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+    before = json.loads((data_root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     if before.get("build_scope") == "provided_processed":
         from pipeline.team_bundle import rebuild_processed
-        rebuild_processed(root, root / before["source_bundle"]["local_path"],
+        rebuild_processed(root, data_root / before["source_bundle"]["local_path"],
                           source_kind=before["source_bundle"].get("kind"),
                           enrich=before.get("raw_port_enrichment", False))
-        after = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+        after = json.loads((resolve_data_root(root) / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     else:
         after = build(root, available_only=before.get("build_scope") == "available_only")
     previous_outputs = {**before["outputs"], **before.get("generated_outputs", {})}

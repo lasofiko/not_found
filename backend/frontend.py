@@ -1,12 +1,15 @@
 """Serve the approved React UI at / and reject stale production builds."""
 
+import asyncio
 import hashlib
 import json
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
 from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import BaseRoute, Match
 
@@ -41,10 +44,15 @@ def frontend_source_digest(frontend: Path) -> str:
 
 
 class FrontendFiles(StaticFiles):
+    validation_interval = 0.5
+
     def __init__(self, frontend: Path, api_prefix: str = "/api/v1", routes: Sequence[BaseRoute] = ()):
         self.frontend = frontend
-        self.source_signature = None
         self.source_digest = ""
+        self._validation_lock = asyncio.Lock()
+        self._validated_until = 0.0
+        self._build_signature = None
+        self._build_error = None
         self.api_routes = tuple(routes)
         self.protected = {
             "api",
@@ -68,12 +76,9 @@ class FrontendFiles(StaticFiles):
         message = "Интерфейс не собран."
         try:
             manifest = json.loads((directory / "build-info.json").read_text(encoding="utf-8"))
-            signature = [
-                (str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in source_files(self.frontend)
-            ]
-            if signature != self.source_signature:
-                self.source_digest = frontend_source_digest(self.frontend)
-                self.source_signature = signature
+            # The outer TTL bounds this full hash. Size/mtime alone cannot prove
+            # identity after a checkout or a tool preserving file timestamps.
+            self.source_digest = frontend_source_digest(self.frontend)
             index_hash = hashlib.sha256((directory / "index.html").read_bytes()).hexdigest()
             if (
                 manifest["version"] == 1
@@ -91,6 +96,32 @@ class FrontendFiles(StaticFiles):
             headers={"Cache-Control": "no-store"},
         )
 
+    def _refresh_build(self) -> None:
+        # Stat is cheap; recursive source scanning/hashing is bounded by the TTL.
+        # A replaced/deleted manifest or HTML invalidates immediately.
+        try:
+            signature = tuple(
+                (path.stat().st_mtime_ns, path.stat().st_size)
+                for path in (self.frontend / "dist/build-info.json", self.frontend / "dist/index.html")
+            )
+        except OSError:
+            signature = None
+        now = time.monotonic()
+        if now >= self._validated_until or signature != self._build_signature:
+            self._build_error = None
+            try:
+                self.check_build()
+            except HTTPException as error:
+                self._build_error = error
+            self._build_signature = signature
+            self._validated_until = time.monotonic() + self.validation_interval
+        if self._build_error:
+            raise self._build_error
+
+    async def validate_build(self) -> None:
+        async with self._validation_lock:
+            await run_in_threadpool(self._refresh_build)
+
     async def get_response(self, path, scope):
         parts = Path(path).parts
         if parts and parts[0] in self.protected:
@@ -103,7 +134,7 @@ class FrontendFiles(StaticFiles):
             raise HTTPException(404)
         if scope["method"] not in {"GET", "HEAD"}:
             raise HTTPException(405, headers={"Allow": "GET, HEAD"})
-        self.check_build()
+        await self.validate_build()
         try:
             response = await super().get_response(path, scope)
         except StarletteHTTPException as error:

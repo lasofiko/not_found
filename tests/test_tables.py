@@ -4,7 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import json
 import unittest
-from zipfile import ZipFile
+from unittest.mock import patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from pipeline.tables import numeric, normalize_transit, parse_export, read_xlsx, transit_summary, transport_mode
 
@@ -105,6 +106,44 @@ class ExportTests(unittest.TestCase):
             write_sheet('<c r="A1"><f>1+1</f></c>')
             with self.assertRaises(ValueError):
                 read_xlsx(path)
+
+
+class XlsxLimitsTests(unittest.TestCase):
+    def test_aggregate_unpacked_size_is_checked_before_xml_parse(self):
+        with TemporaryDirectory() as temp:
+            path = Path(temp) / 'synthetic.xlsx'
+            with ZipFile(path, 'w', compression=ZIP_DEFLATED) as archive:
+                archive.writestr('xl/media/a.bin', b'a' * 70)
+                archive.writestr('xl/media/b.bin', b'b' * 70)
+            with patch('pipeline.tables.XLSX_MAX_UNPACKED_BYTES', 100), \
+                    patch('pipeline.tables.ET.fromstring') as parse:
+                with self.assertRaisesRegex(ValueError, 'суммарный предел распаковки'):
+                    read_xlsx(path)
+                parse.assert_not_called()
+
+    def test_aggregate_and_individual_xml_limits_precede_parse(self):
+        for limit, message in (('XLSX_MAX_XML_BYTES', 'суммарный предел XML'),
+                               ('XLSX_MAX_XML_MEMBER_BYTES', 'XML-вложения')):
+            with self.subTest(limit=limit), TemporaryDirectory() as temp:
+                path = Path(temp) / 'synthetic.xlsx'
+                with ZipFile(path, 'w', compression=ZIP_DEFLATED) as archive:
+                    archive.writestr('xl/workbook.xml', b'x' * 70)
+                    archive.writestr('xl/_rels/workbook.xml.rels', b'y' * 70)
+                with patch('pipeline.tables.' + limit, 60 if 'MEMBER' in limit else 100), \
+                        patch('pipeline.tables.ET.fromstring') as parse:
+                    with self.assertRaisesRegex(ValueError, message):
+                        read_xlsx(path)
+                    parse.assert_not_called()
+
+    def test_xml_entity_expansion_is_rejected_in_utf8_and_utf16(self):
+        for encoding in ('utf-8', 'utf-16'):
+            with self.subTest(encoding=encoding), TemporaryDirectory() as temp:
+                path = Path(temp) / 'synthetic.xlsx'
+                payload = '<!DOCTYPE x [<!ENTITY value "synthetic">]><Relationships>&value;</Relationships>'
+                with ZipFile(path, 'w') as archive:
+                    archive.writestr('xl/_rels/workbook.xml.rels', payload.encode(encoding))
+                with self.assertRaisesRegex(ValueError, 'DTD'):
+                    read_xlsx(path)
 
 
 class TransitTests(unittest.TestCase):
