@@ -173,6 +173,8 @@ CSV годового прогноза сохраняет прежние стол
 `BB_LLM_MAX_CONCURRENT_REQUESTS`, `BB_LLM_MAX_TOKENS`,
 `BB_LLM_MAX_ANSWER_CHARS`, `BB_LLM_SUMMARY_CACHE_TTL_SECONDS`.
 Удалённый доступ разрешается только при включённом allow_remote и токене.
+В development локальными считаются loopback и приватные адреса, включая шлюз
+локальной Docker-сети; публиковать development через reverse proxy нельзя.
 В production отсутствие токена закрывает LLM также для loopback/reverse proxy;
 остальные маршруты продолжают работать.
 Отказ доступа — 403 `LLM_ACCESS_DENIED`; лимит частоты/параллельности —
