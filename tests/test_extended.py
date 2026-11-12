@@ -9,7 +9,7 @@ import unittest
 from zipfile import ZipFile
 
 from pipeline.acquire_list import validate_download
-from pipeline.extended_extract import airport_pdf, airport_xlsx, belarus_transit, border_workbook, customs_history, regional_archive, weather
+from pipeline.extended_extract import airport_pdf, airport_xlsx, belarus_transit, border_workbook, connectivity, customs_history, regional_archive, weather
 from pipeline.supplemental import parse_port
 
 
@@ -80,6 +80,16 @@ class ExtendedSourceTests(unittest.TestCase):
         self.assertEqual(rows[0]['flow_label'],'ЭК')
         self.assertEqual(rows[0]['netto_original'],'50')
         self.assertEqual(rows[0]['value_tonnes'],'')
+
+    def test_registered_external_encoding_is_honored_without_silent_fallback(self):
+        content = 'city_from,city_to,transport_type,distance_km,distance_hr\nКалининград,Москва,road,100,2\n'
+        with ZipFile(self.path, 'w') as archive:
+            archive.writestr('synthetic.csv', content.encode('cp1251'))
+        rows = connectivity(self.path, {**self.artifact, 'encoding': 'cp1251'}, 'test')
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['origin_city'], 'Калининград')
+        with self.assertRaisesRegex(ValueError, 'кодировке'):
+            connectivity(self.path, {**self.artifact, 'encoding': 'utf-8'}, 'test')
 
     def test_airport_xlsx_excludes_passengers_and_annual_total(self):
         rows={3:{'B':'Груз, всего, тонн'},4:{'B':'2018 Январь','C':'2018 Янв - Дек'},5:{'A':'Калининград(Храброво)','B':'1.5','C':'999'}}

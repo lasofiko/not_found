@@ -62,11 +62,14 @@ def fixture(root, *, legacy=False):
                              for d in ("inbound", "outbound")},
               "metrics": {d: {"naive": {stage: m for stage in ("development", "holdout")}}
                           for d in ("inbound", "outbound")}}
-    save("models/latest.json", annual, "annual")
+    annual_basis = save("models/latest.json", annual, "annual")
     write_csv(root / "data/processed/candidate_observations.csv", ["direction", "period", "value_tonnes"],
               [{"direction": d, "period": y, "value_tonnes": "123"} for d in ("inbound", "outbound") for y in years])
     write_json(root / "data/review-status.json", {"status": "partial", "reviewer": "Петя", "reviewed_cells": None})
-    folder = root / "reports/generated/ml-hypotheses/synthetic"
+    hypothesis_fingerprint = {"data_version": "synthetic", "input_identity": {"model_basis": annual_basis}}
+    hypothesis_version = "bb-hyp-" + digest(json.dumps(
+        hypothesis_fingerprint, sort_keys=True, ensure_ascii=False, allow_nan=False).encode())[:12]
+    folder = root / "reports/generated/ml-hypotheses" / hypothesis_version
     write_csv(folder / "action_scenarios.csv", ["year", "direction", "demand_case", "action",
               "shortfall_action_tonnes", "capacity_action_tonnes", "capacity_rail_limited_tonnes"],
               [{"year": "2027", "direction": "inbound", "demand_case": "demand_x1_5", "action": action,
@@ -76,12 +79,37 @@ def fixture(root, *, legacy=False):
         {"indicator": "Потенциал на ремонт «Амбала», 73 дня", "central": 67000},
         {"indicator": "Потенциал на все ремонты 2026", "central": 112000},
         {"indicator": "Запас ж/д части до предела по грузу в вагонах", "central": 630000}])
-    write_json(folder / "run_manifest.json", {"data_version": "synthetic", "outputs": {
+    write_json(folder / "run_manifest.json", {"data_version": "synthetic",
+        "report_version": hypothesis_version, "fingerprint": hypothesis_fingerprint,
+        "input_identity": {"model_basis": annual_basis}, "outputs": {
         name: digest((folder / name).read_bytes()) for name in ("action_scenarios.csv", "hypothesis_results.csv")}})
     return folder
 
 
 class JuryExportTests(unittest.TestCase):
+    def test_scenarios_use_frozen_model_even_after_latest_changes(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = fixture(root)
+            write_json(root / "models/latest.json", {"model_path": "models/unknown/model.json",
+                       "model_version": "other", "sha256": "0" * 64})
+            export_jury(root, folder)
+            evidence = read = json.loads((root / "docs/jury/evidence.json").read_text(encoding="utf-8"))
+            self.assertEqual(evidence["annual_model"], "synthetic-annual")
+            self.assertEqual(read["annual_model_sha256"], digest((root / "models/annual/model.json").read_bytes()))
+
+    def test_unproven_legacy_model_basis_is_rejected_before_export(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = fixture(root)
+            path = folder / "run_manifest.json"
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifest.pop("input_identity")
+            write_json(path, manifest)
+            with self.assertRaisesRegex(ValueError, "model_basis"):
+                export_jury(root, folder)
+            self.assertFalse((root / "docs/jury").exists())
+
     def test_legacy_export_requires_frozen_run_and_does_not_reopen_or_rewrite_inputs(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -89,7 +117,7 @@ class JuryExportTests(unittest.TestCase):
             originals = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
             with patch("pipeline.port_protocol.load_blind_cumulatives", side_effect=AssertionError("closed")):
                 export_jury(root, folder)
-            evidence = json.loads((root / "docs/jury/evidence.json").read_text())
+            evidence = json.loads((root / "docs/jury/evidence.json").read_text(encoding="utf-8"))
             self.assertEqual(evidence["monthly_models"]["kaliningrad_ferries"]["binding_method"], "legacy_frozen_run")
             self.assertTrue(all(path.read_bytes() == content for path, content in originals.items()))
             report = root / "reports/generated/ml-port/synthetic-kaliningrad_ferries"
@@ -106,16 +134,16 @@ class JuryExportTests(unittest.TestCase):
                 root = Path(temp)
                 folder = fixture(root)
                 path = root / "models/kaliningrad_ferries/model.json"
-                model = json.loads(path.read_text())
+                model = json.loads(path.read_text(encoding="utf-8"))
                 model[key] = value
                 write_json(path, model)
                 pointer_path = root / "models/port/kaliningrad_ferries/latest.json"
-                pointer = json.loads(pointer_path.read_text())
+                pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
                 pointer["sha256"] = digest(path.read_bytes())
                 pointer["model_version"] = model["model_version"]
                 write_json(pointer_path, pointer)
                 manifest_path = root / pointer["report_path"] / "run_manifest.json"
-                manifest = json.loads(manifest_path.read_text())
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 manifest.update({"model_sha256": pointer["sha256"], "model_version": model["model_version"]})
                 write_json(manifest_path, manifest)
                 with self.assertRaisesRegex(ValueError, "не соответствует"):
@@ -128,7 +156,7 @@ class JuryExportTests(unittest.TestCase):
                 root = Path(temp)
                 folder = fixture(root)
                 path = root / "reports/generated/ml-port/blind_checks/kaliningrad_ferries.json"
-                blind = json.loads(path.read_text())
+                blind = json.loads(path.read_text(encoding="utf-8"))
                 blind["comparisons"][0]["absolute_error_tonnes"] = 12345
                 write_json(path, blind)
                 if alter_frozen:
@@ -142,16 +170,16 @@ class JuryExportTests(unittest.TestCase):
             root = Path(temp)
             folder = fixture(root, legacy=True)
             path = root / "models/kaliningrad_ferries/model.json"
-            model = json.loads(path.read_text())
+            model = json.loads(path.read_text(encoding="utf-8"))
             model["data_version"] = "new-data-same-numbers"
             model["fingerprint"]["data_version"] = model["data_version"]
             write_json(path, model)
             pointer_path = root / "models/port/kaliningrad_ferries/latest.json"
-            pointer = json.loads(pointer_path.read_text())
+            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
             pointer["sha256"] = digest(path.read_bytes())
             write_json(pointer_path, pointer)
             manifest_path = root / pointer["report_path"] / "run_manifest.json"
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest.update({"model_sha256": pointer["sha256"], "data_version": model["data_version"],
                              "fingerprint": model["fingerprint"]})
             write_json(manifest_path, manifest)
@@ -165,13 +193,13 @@ class JuryExportTests(unittest.TestCase):
             folder = fixture(root)
             for target in TARGETS:
                 path = root / "reports/generated/ml-port/blind_checks" / (target + ".json")
-                blind = json.loads(path.read_text())
+                blind = json.loads(path.read_text(encoding="utf-8"))
                 for row in blind["comparisons"]:
                     row["absolute_error_tonnes"] = 10
                 write_json(path, blind)
                 report = root / "reports/generated/ml-port" / ("synthetic-" + target)
                 write_json(report / "blind_check.json", blind)
-                manifest = json.loads((report / "run_manifest.json").read_text())
+                manifest = json.loads((report / "run_manifest.json").read_text(encoding="utf-8"))
                 manifest["outputs"]["blind_check.json"] = digest((report / "blind_check.json").read_bytes())
                 write_json(report / "run_manifest.json", manifest)
             path = folder / "action_scenarios.csv"
@@ -183,17 +211,17 @@ class JuryExportTests(unittest.TestCase):
                 if row["action"] == "both":
                     row["shortfall_action_tonnes"] = ""
             write_csv(path, list(rows[0]), rows)
-            manifest = json.loads((folder / "run_manifest.json").read_text())
+            manifest = json.loads((folder / "run_manifest.json").read_text(encoding="utf-8"))
             manifest["outputs"]["action_scenarios.csv"] = digest(path.read_bytes())
             write_json(folder / "run_manifest.json", manifest)
             export_jury(root, folder)
-            landing = (root / "docs/jury/README.md").read_text()
+            landing = (root / "docs/jury/README.md").read_text(encoding="utf-8")
             self.assertIn("1,00%", landing)
             self.assertIn("WAPE 5,00%", landing)
             self.assertIn("равны naive", landing)
             self.assertNotIn("3,7%", landing)
             self.assertNotIn("24%", landing)
-            scenarios = (root / "docs/jury/scenarios.md").read_text()
+            scenarios = (root / "docs/jury/scenarios.md").read_text(encoding="utf-8")
             self.assertIn("12,50", scenarios)
             self.assertIn("ограничивает", scenarios)
             self.assertIn("| А + портовый оборот | — | — |", scenarios)
@@ -239,7 +267,7 @@ class JuryExportTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             folder = fixture(root)
-            pointer = json.loads((root / "models/port/kaliningrad_ferries/latest.json").read_text())
+            pointer = json.loads((root / "models/port/kaliningrad_ferries/latest.json").read_text(encoding="utf-8"))
             (root / pointer["model_path"]).write_text("{}")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 export_jury(root, folder)

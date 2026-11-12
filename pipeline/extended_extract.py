@@ -47,12 +47,12 @@ def archive_csv(path, *, encoding_hint=None):
         encoding = encoding_hint or "utf-8-sig"
         try:
             codecs.getincrementaldecoder(encoding)().decode(sample, final=False)
-        except UnicodeDecodeError:
-            encoding = "cp1251"
-        with z.open(names[0]) as b, io.TextIOWrapper(b, encoding=encoding, errors="replace", newline="") as f:
+        except UnicodeDecodeError as error:
+            raise ValueError("CSV не соответствует указанной кодировке; требуется уточнение паспорта источника") from error
+        with z.open(names[0]) as b, io.TextIOWrapper(b, encoding=encoding, newline="") as f:
             first = f.readline()
         delimiter = ";" if first.count(";") > first.count(",") else ","
-        with z.open(names[0]) as b, io.TextIOWrapper(b, encoding=encoding, errors="replace", newline="") as f:
+        with z.open(names[0]) as b, io.TextIOWrapper(b, encoding=encoding, newline="") as f:
             for line, row in enumerate(csv.DictReader(f, delimiter=delimiter), 2):
                 if any("\ufffd" in str(v) for v in row.values()):
                     row["_decoding_replacement"] = "true"
@@ -61,7 +61,7 @@ def archive_csv(path, *, encoding_hint=None):
 
 def regional_archive(path, artifact, version):
     result = []
-    for member, line, r in archive_csv(path):
+    for member, line, r in archive_csv(path, encoding_hint=artifact.get("encoding")):
         if "object_name" not in r or "indicator_value" not in r:
             raise ValueError("Не подтверждена схема регионального CSV")
         if r["object_name"] != "Калининградская область":
@@ -80,7 +80,7 @@ def regional_archive(path, artifact, version):
 
 def connectivity(path, artifact, version):
     result = []
-    for member, line, r in archive_csv(path):
+    for member, line, r in archive_csv(path, encoding_hint=artifact.get("encoding")):
         if not {"city_from", "city_to", "transport_type", "distance_km", "distance_hr"} <= r.keys():
             raise ValueError("Не подтверждена схема связности")
         if "Калининград" not in {r["city_from"], r["city_to"]}:
@@ -96,7 +96,7 @@ def connectivity(path, artifact, version):
 
 
 def weather(path, artifact, version):
-    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    lines = path.read_text(encoding=artifact.get("encoding") or "utf-8-sig").splitlines()
     header_index = next((i for i, line in enumerate(lines) if line.startswith("time,")), None)
     if header_index is None:
         raise ValueError("Нет суточной таблицы Open-Meteo")
@@ -166,7 +166,7 @@ def border_workbook(path, artifact, version):
 
 def lithuania_transport(path, artifact, version):
     result = []
-    with path.open(encoding="utf-8-sig", newline="") as f:
+    with path.open(encoding=artifact.get("encoding") or "utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         if not {"ataskaitine_para", "kameros_aprasymas", "tp_srautas"} <= set(reader.fieldnames or []):
             raise ValueError("Не подтверждена схема литовских транспортных счётчиков")
@@ -354,7 +354,8 @@ def documentary_values(path, artifact, version):
 
 def customs_history(path, artifact, version):
     result = []
-    for member, line, r in archive_csv(path, encoding_hint="cp866"):
+    encoding = artifact.get("encoding") or "cp866"
+    for member, line, r in archive_csv(path, encoding_hint=encoding):
         if "REGION" not in r or "NETTO" not in r:
             raise ValueError("Не подтверждена схема TCBT")
         if "калининград" not in r["REGION"].lower():
@@ -364,7 +365,7 @@ def customs_history(path, artifact, version):
             "quantity_unit_original": r["EDIZM"], "value_tonnes": "", "unit_status": "unconfirmed", "status": "observed",
             "source_id": artifact["source_id"], "source_locator": f"ZIP:{member}:CSV:row={line}",
             "quality_flags": "decoding_replacement" if r.get("_decoding_replacement") else "",
-            "quality_note": "Внешняя торговля, не внутренний коридор. Кодировка исходного TCBT: CP866. Единицы NETTO/STOIM не подтверждены; в тонны/рубли не переводилось. Нераспознаваемый символ сохраняется как U+FFFD с флагом.", "data_version": version})
+            "quality_note": f"Внешняя торговля, не внутренний коридор. Кодировка исходного TCBT: {encoding}. Единицы NETTO/STOIM не подтверждены; в тонны/рубли не переводилось. Ошибки декодирования требуют уточнения паспорта.", "data_version": version})
     if not result:
         raise ValueError("В TCBT не найдены строки Калининграда; проверить кодировку/географию, пустой результат не принимается")
     return result

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from backend.core.settings import Settings
-from backend.frontend import frontend_source_digest
+from backend.frontend import FrontendFiles, frontend_source_digest
 
 
 def write_build(frontend: Path, html: str) -> None:
@@ -23,7 +23,8 @@ def write_build(frontend: Path, html: str) -> None:
                 "source_sha256": frontend_source_digest(frontend),
                 "index_sha256": hashlib.sha256((dist / "index.html").read_bytes()).hexdigest(),
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
 
@@ -114,6 +115,7 @@ def test_frontend_serves_build_assets_without_exposing_sources(tmp_path, monkeyp
 
 
 def test_stale_build_is_rejected_without_stopping_api(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(FrontendFiles, "validation_interval", 0)
     app_module = importlib.import_module("backend.app")
     (tmp_path / "src").mkdir()
     source = tmp_path / "src" / "App.tsx"
@@ -132,4 +134,64 @@ def test_stale_build_is_rejected_without_stopping_api(tmp_path, monkeypatch) -> 
     (tmp_path / "dist" / "index.html").write_text("<html>obsolete UI</html>")
     assert client.get("/").status_code == 503
     (tmp_path / "dist" / "build-info.json").unlink()
+    assert client.get("/").status_code == 503
+
+
+def test_parallel_assets_do_not_block_health_and_manifest_invalidates(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+
+    import httpx
+
+    app_module = importlib.import_module("backend.app")
+    write_build(tmp_path, "<html>synthetic UI</html>")
+    (tmp_path / "dist/assets").mkdir()
+    (tmp_path / "dist/assets/test.js").write_text("// synthetic", encoding="utf-8")
+    monkeypatch.setattr(app_module, "FRONTEND", tmp_path)
+    app = create_app(Settings(_env_file=None))
+    frontend = app.routes[-1].app
+    original = frontend.check_build
+    entered, release = threading.Event(), threading.Event()
+    scans = []
+
+    def blocked_scan():
+        scans.append(1)
+        entered.set()
+        assert release.wait(5)
+        return original()
+
+    monkeypatch.setattr(frontend, "check_build", blocked_scan)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            assets = [asyncio.create_task(client.get("/assets/test.js")) for _ in range(8)]
+            assert await asyncio.to_thread(entered.wait, 5)
+            try:
+                health = await asyncio.wait_for(client.get("/api/v1/health"), timeout=1)
+                assert health.status_code == 200
+            finally:
+                release.set()
+            assert all(r.status_code == 200 for r in await asyncio.gather(*assets))
+            assert len(scans) == 1
+            (tmp_path / "dist/build-info.json").write_text("{}", encoding="utf-8")
+            assert (await client.get("/assets/test.js")).status_code == 503
+
+    asyncio.run(run())
+
+
+def test_same_size_source_change_with_preserved_timestamp_is_detected(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(FrontendFiles, "validation_interval", 0)
+    app_module = importlib.import_module("backend.app")
+    (tmp_path / "src").mkdir()
+    source = tmp_path / "src/App.tsx"
+    source.write_text("versionA", encoding="utf-8")
+    write_build(tmp_path, "<html>synthetic</html>")
+    monkeypatch.setattr(app_module, "FRONTEND", tmp_path)
+    client = TestClient(create_app(Settings(_env_file=None)))
+    assert client.get("/").status_code == 200
+    original = source.stat()
+    source.write_text("versionB", encoding="utf-8")
+    os.utime(source, ns=(original.st_atime_ns, original.st_mtime_ns))
     assert client.get("/").status_code == 503

@@ -64,7 +64,7 @@ def prepare_extended(root, latest, version, supplemental_outputs):
     # В тестовых/малых комплектах нет этих источников: не объявляем внешний список их составом.
     if not any(a.get("document_sha256") for a in latest.values()):
         return {}, {"rows": {}, "sources": {}, "rules": {}}, ""
-    failures = {f["source_key"]: f for f in json.loads((root / "data/source_registry.json").read_text()).get("failures", [])}
+    failures = {f["source_key"]: f for f in json.loads((root / "data/source_registry.json").read_text(encoding="utf-8")).get("failures", [])}
     datasets = defaultdict(list)
     issues, assessment = [], []
     port_rows = supplemental_outputs.get("data/processed/port_cabotage_cumulative.csv", ([], []))[1]
@@ -150,7 +150,7 @@ def prepare_extended(root, latest, version, supplemental_outputs):
                     image.width, image.height, "saved_not_extracted", "Изображение проверено; времена не извлечены, пассажирский контекст, не грузовые данные", version]))]
                 note = "Профиль изображения подготовлен; числовое расписание требует отдельной сверки/OCR"
             elif family == "border_reference" and fmt == "csv":
-                data = path.read_text(encoding="utf-8-sig")
+                data = path.read_text(encoding=a.get("encoding") or "utf-8-sig")
                 dialect = csv.Sniffer().sniff(data[:2048], delimiters=",;")
                 source_rows = list(csv.DictReader(data.splitlines(), dialect=dialect))
                 produced["border_historical_source.csv"] = [{"published_record": json.dumps(r, ensure_ascii=False), "source_id": a["source_id"], "source_locator": f"CSV:row={i}",

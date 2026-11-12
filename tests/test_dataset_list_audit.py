@@ -68,7 +68,7 @@ class DatasetListAuditTests(unittest.TestCase):
             json.loads((output / "summary.json").read_text()),
             read_csv(output / "dataset-groups.csv"),
             read_csv(output / "all-links.csv"),
-            (root / "docs/dataset-list-audit.md").read_text(),
+            (root / "docs/dataset-list-audit.md").read_text(encoding="utf-8"),
         )
 
     def test_empty_registry_never_claims_originals_or_fixed_observation_counts(self):

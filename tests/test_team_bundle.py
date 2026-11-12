@@ -34,6 +34,46 @@ def bundle(path, payloads, broken=None):
 
 
 class BundleTests(unittest.TestCase):
+    def test_path_aliases_and_windows_collisions_fail_before_first_write(self):
+        canonical = 'data/processed/test.csv'
+        for alias in ('data/processed/./test.csv', 'data//processed/test.csv',
+                      'data/processed/TEST.csv', 'DATA/processed/test.csv',
+                      'data/processed/test.csv.', 'data/processed/test.csv ', 'data/processed/CON.csv'):
+            with self.subTest(alias=alias), TemporaryDirectory() as temp:
+                root = Path(temp)
+                target = root / canonical
+                target.parent.mkdir(parents=True)
+                target.write_bytes(b'previous')
+                archive = root / 'source.zip'
+                bundle(archive, {canonical: b'first', alias: b'second'})
+                with self.assertRaises(ValueError):
+                    import_archive(root, archive)
+                self.assertEqual(target.read_bytes(), b'previous')
+                self.assertFalse((root / 'data/raw').exists())
+
+    def test_final_parent_file_conflict_fails_before_first_write(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            prior = root / 'data/processed/first.csv'
+            prior.parent.mkdir(parents=True)
+            prior.write_bytes(b'previous')
+            (prior.parent / 'blocked').write_bytes(b'parent file')
+            archive = root / 'source.zip'
+            bundle(archive, {'data/processed/first.csv': b'new', 'data/processed/blocked/last.csv': b'last'})
+            with self.assertRaisesRegex(ValueError, 'Родитель'):
+                import_archive(root, archive)
+            self.assertEqual(prior.read_bytes(), b'previous')
+            self.assertFalse((root / 'data/raw').exists())
+
+    def test_file_directory_collision_is_rejected_on_every_platform(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / 'source.zip'
+            bundle(archive, {'data/processed/item': b'file', 'data/processed/ITEM/value.csv': b'child'})
+            with self.assertRaisesRegex(ValueError, 'каталог'):
+                import_archive(root, archive)
+            self.assertFalse((root / 'data').exists())
+
     def test_corruption_or_unsafe_names_do_not_replace_existing_data(self):
         for invalid in ('hash', 'path'):
             with self.subTest(invalid=invalid), TemporaryDirectory() as temp:
@@ -114,9 +154,9 @@ class BundleTests(unittest.TestCase):
             candidate.write_bytes(candidate.read_bytes().replace(b'123', b'124'))
             self.assertTrue(verify(root))
             # Подмена выходного хеша не скрывает изменение величины относительно ZIP.
-            data = json.loads((root / 'data/processed/build_manifest.json').read_text())
+            data = json.loads((root / 'data/processed/build_manifest.json').read_text(encoding="utf-8"))
             data['outputs']['data/processed/candidate_observations.csv'] = digest(candidate.read_bytes())
-            (root / 'data/processed/build_manifest.json').write_text(json.dumps(data))
+            (root / 'data/processed/build_manifest.json').write_text(json.dumps(data), encoding="utf-8")
             self.assertTrue(any('значения' in e for e in verify(root)))
 
     def test_missing_processed_outputs_fail_before_any_install(self):
@@ -165,7 +205,7 @@ class BundleTests(unittest.TestCase):
             archive = root / 'processed.zip'
             bundle(archive, payloads)
             rebuild_processed(root, archive)
-            manifest = json.loads((root / 'data/processed/build_manifest.json').read_text())
+            manifest = json.loads((root / 'data/processed/build_manifest.json').read_text(encoding="utf-8"))
             saved = root / manifest['source_bundle']['local_path']
             del payloads['data/processed/context_observations.csv']
             bundle(saved, payloads)
@@ -184,14 +224,14 @@ class BundleTests(unittest.TestCase):
             bundle(archive, payloads)
             rebuild_processed(root, archive)
             manifest_path = root / 'data/processed/build_manifest.json'
-            manifest = json.loads(manifest_path.read_text())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             relative = 'data/processed/target-quality.json'
             target = root / relative
-            target.write_text(json.dumps({'human_review': 'completed', 'candidate_non_missing': 999999}))
+            target.write_text(json.dumps({'human_review': 'completed', 'candidate_non_missing': 999999}), encoding="utf-8")
             manifest['outputs'][relative] = digest(target.read_bytes())
-            manifest_path.write_text(json.dumps(manifest))
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             errors = verify(root)
-            self.assertTrue(any('Изменён неизменяемый файл' in e and relative in e for e in errors), errors)
+            self.assertTrue(any('SHA-256' in e and relative in e for e in errors), errors)
 
 
 if __name__ == '__main__':

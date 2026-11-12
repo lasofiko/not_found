@@ -106,6 +106,7 @@ class ParsingTests(unittest.TestCase):
         rows = {
             1: ["Товарная структура экспорта и импорта"],
             5: ["январь - сентябрь 2021 года"],
+            6: ["(тыс. USD)"],
             7: ["Код", "Товар", "ВСЕГО", ""],
             8: ["", "", "ЭКСПОРТ", "ИМПОРТ"],
             9: ["01-24", "Вымышленная группа", "1", "2"],
@@ -118,6 +119,7 @@ class ParsingTests(unittest.TestCase):
         rows = {
             1: ["Общие итоги внешней торговли"],
             5: ["январь - сентябрь 3 квартал 2021 года"],
+            6: ["(тыс. USD)"],
             7: ["", "2020 год", "", "2021 год", ""],
             8: ["", "3 квартал", "январь-сентябрь", "3 квартал", "январь-сентябрь"],
             9: ["ЭКСПОРТ", "1", "2", "3", "4"],
@@ -127,6 +129,46 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual([r["period"] for r in values[:4]], ["2020-09", "2020-09", "2021-09", "2021-09"])
         self.assertEqual([r["period_basis"] for r in values[:4]], ["quarter", "year_to_date"] * 2)
         self.assertTrue(all(r["value"].startswith("-") for r in values[4:]))
+
+    def test_currency_and_scale_require_an_explicit_unit_on_identical_forms(self):
+        for label, unit, factor, expected in (
+            ("USD", "usd", "1", "2"),
+            ("тыс. USD", "usd", "1000", "2000"),
+            ("рублей", "rub", "1", "2"),
+            ("млн рублей", "rub", "1000000", "2000000"),
+            ("", "", "", ""),
+            ("доллары", "", "", ""),
+        ):
+            rows = {1: ["Товарная структура экспорта и импорта"],
+                    5: ["январь - сентябрь 2021 года"], 6: [label],
+                    7: ["Код", "Товар", "ВСЕГО", ""],
+                    8: ["", "", "ЭКСПОРТ", "ИМПОРТ"],
+                    9: ["01-24", "Вымышленная группа", "2", "2"]}
+            with self.subTest(label=label):
+                values = parse(rows)
+                self.assertEqual(len(values), 2)
+                self.assertEqual({(r["unit"], r["conversion_factor"], r["value"]) for r in values},
+                                 {(unit, factor, expected)})
+                self.assertEqual({r["original_unit"] for r in values}, {label})
+                self.assertTrue(all(r["original_value"] == "2" and r["review_status"] == "pending" for r in values))
+                if not unit:
+                    self.assertTrue(all("unit_unconfirmed" in r["quality_flags"] for r in values))
+
+    def test_unknown_column_unit_is_preserved_without_inheriting_usd(self):
+        rows = goods()
+        rows[7][5] = "стоимость, EUR"
+        value = next(r for r in parse(rows) if r["source_locator"].endswith("!F9"))
+        self.assertEqual((value["original_unit"], value["value"], value["unit"], value["conversion_factor"]),
+                         ("стоимость, EUR", "", "", ""))
+
+    def test_different_currencies_are_not_the_same_series(self):
+        usd, rub = goods(), goods()
+        for col in (5, 8, 11):
+            usd[7][col] = 'стоимость, USD'
+            rub[7][col] = 'стоимость, рублей'
+        usd_value = next(r for r in parse(usd) if r['source_locator'].endswith('!F9'))
+        rub_value = next(r for r in parse(rub) if r['source_locator'].endswith('!F9'))
+        self.assertNotEqual(usd_value['series_id'], rub_value['series_id'])
 
     def test_ambiguous_caption_is_not_one_period(self):
         self.assertIsNone(period("январь-сентябрь 3 квартал 2021 года"))
@@ -172,7 +214,7 @@ class PackageTests(unittest.TestCase):
                 z.write(source, "duplicate.xlsx")
             (root / "data").mkdir()
             existing = root / "data/source_registry.json"
-            existing.write_text(json.dumps({"schema_version": "0.2", "artifacts": []}))
+            existing.write_text(json.dumps({"schema_version": "0.2", "artifacts": []}), encoding="utf-8")
             before = existing.read_bytes()
             first = Builder(root, archive).run()
             self.assertEqual(verify(root), [])

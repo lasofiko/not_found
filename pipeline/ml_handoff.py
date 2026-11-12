@@ -149,7 +149,7 @@ def build(root=ROOT, limit=PART_BYTES):
             shutil.copyfile(source, path)
             assets[path.relative_to(target).as_posix()] = digest(path)
         manifest_path = directory / ("build_manifest.json" if group == "kaliningrad" else "manifest.json")
-        versions[group] = json.loads(manifest_path.read_text())["data_version"]
+        versions[group] = json.loads(manifest_path.read_text(encoding="utf-8"))["data_version"]
         print(f"{group}: {len(files)} исходных CSV", flush=True)
     for name in (
         "docs/far-east-handoff.md",
@@ -234,7 +234,7 @@ def build(root=ROOT, limit=PART_BYTES):
 
 
 def load(root):
-    return json.loads((root / BUNDLE / "manifest.json").read_text())
+    return json.loads((root / BUNDLE / "manifest.json").read_text(encoding="utf-8"))
 
 
 def iter_rows(name, *, root=ROOT):

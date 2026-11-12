@@ -10,6 +10,7 @@ from ml.data import DIRECTIONS, load_config, load_dataset
 from ml.evaluation import BACKTEST_FIELDS, evaluate
 from ml.models import fit_model
 from ml.predict import WARNINGS, forecast, load_artifact
+from ml.publication import atomic_pointer, publish_directory, staged_generation, verify_report
 from ml.reporting import html_report, model_card, plot_reports
 from ml.review import (BREAK_FIELDS, METRIC_DEFINITIONS, TERMINAL_FIELDS, WINDOW_ROLES, baseline_comparison,
                        break_review, terminal_check)
@@ -34,6 +35,12 @@ def library_versions() -> dict:
 
 
 def run(root: Path = ROOT, *, end_year: int = 2030, config_path: Path | None = None, plots=True) -> dict:
+    root = Path(root).resolve()
+    with staged_generation(root) as staging:
+        return _run(root, staging, end_year=end_year, config_path=config_path, plots=plots)
+
+
+def _run(root, staging, *, end_year, config_path, plots):
     if type(end_year) is not int or not 2024 <= end_year <= 2030:
         raise ValueError("Конечный год прогноза должен быть от 2024 до 2030")
     root = Path(root).resolve()
@@ -45,10 +52,14 @@ def run(root: Path = ROOT, *, end_year: int = 2030, config_path: Path | None = N
                    "dataset_sha256": provenance["dataset_sha256"], "config": config, "code": code,
                    "libraries": libraries, "end_year": end_year, "plots": plots}
     model_version = "bb-ml-" + digest(json.dumps(fingerprint, sort_keys=True, ensure_ascii=False, allow_nan=False).encode())[:12]
-    model_dir = root / "models" / model_version
+    final_model_dir = root / "models" / model_version
+    final_model_path = final_model_dir / "model.json"
+    model_dir = staging / "model"
     model_path = model_dir / "model.json"
-    output = root / "reports/generated/ml" / model_version
-    generated_at = (load_artifact(root, model_path)["generated_at"] if model_path.exists()
+    final_output = root / "reports/generated/ml" / model_version
+    output = staging / "report"
+    output.mkdir(parents=True, exist_ok=True)
+    generated_at = (load_artifact(root, final_model_path)["generated_at"] if final_model_path.exists()
                     else datetime.now(timezone.utc).isoformat(timespec="seconds"))
     backtest, metrics, chosen = evaluate(series, config)
     directions = {}
@@ -98,15 +109,19 @@ def run(root: Path = ROOT, *, end_year: int = 2030, config_path: Path | None = N
         (output / "report.html").write_text(html_report(artifact, forecasts, image_dir=output), encoding="utf-8")
     paths = [p for p in output.iterdir() if p.is_file() and p.name != "run_manifest.json"]
     write_json(output / "run_manifest.json", {"model_version": model_version, "data_version": provenance["data_version"],
-                                              "fingerprint": fingerprint, "model_path": model_path.relative_to(root).as_posix(),
+                                              "fingerprint": fingerprint, "model_path": final_model_path.relative_to(root).as_posix(),
                                               "model_sha256": model_sha, "generated_at": generated_at,
                                               "outputs": {p.name: digest(p.read_bytes()) for p in sorted(paths)},
                                               "validation": "passed", "human_methodology_review": "pending"})
-    # Последняя успешная модель меняется только после подготовки всех выходов.
-    write_json(root / "models/latest.json", {"model_version": model_version, "model_path": model_path.relative_to(root).as_posix(),
-                                           "sha256": model_sha, "report_path": output.relative_to(root).as_posix()})
+    verify_report(output, model_sha=model_sha)
+    publish_directory(model_dir, final_model_dir)
+    publish_directory(output, final_output)
+    # Единственная точка фиксации: все неизменяемые файлы уже проверены.
+    atomic_pointer(root / "models/latest.json", {"model_version": model_version,
+                   "model_path": final_model_path.relative_to(root).as_posix(),
+                   "sha256": model_sha, "report_path": final_output.relative_to(root).as_posix()})
     return {"model_version": model_version, "data_version": provenance["data_version"], "selected": chosen,
-            "model_path": model_path, "output_dir": output, "metrics": metrics}
+            "model_path": final_model_path, "output_dir": final_output, "metrics": metrics}
 
 
 def main() -> int:

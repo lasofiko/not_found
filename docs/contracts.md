@@ -1,4 +1,80 @@
-# Контракты v0.18
+# Контракты v0.19
+
+## Исправления воспроизводимости и защиты v0.19
+
+Таможенные суммы нормализуются только при явно подтверждённых валюте и масштабе:
+USD → `usd` ×1, тыс. USD → `usd` ×1000, RUB → `rub` ×1,
+млн RUB → `rub` ×1000000. При неизвестной или неоднозначной единице
+`original_value` и `original_unit` сохраняются; `value`, `unit`,
+`conversion_factor` пусты, `quality_flags` содержит `unit_unconfirmed`,
+`review_status=pending`. Валюты между собой не пересчитываются.
+
+В таблицах Дальнего Востока `period_basis` различает `monthly`, `annual`,
+`quarter`, `year_to_date`, `interval`, `unresolved`. `period_granularity` —
+`month`, `year`, `quarter` либо `interval` соответственно смыслу строки.
+Произвольный диапазон, включая июль–сентябрь, имеет `interval`, точные
+`period_start`/`period_end` и конечный период в `period`; он не является
+наблюдением одного месяца. Обратные диапазоны отклоняются.
+
+Манифест исследования гипотез содержит `input_identity` и тот же объект
+в `fingerprint.input_identity`: `build_manifest_sha256`, `tables`
+и `parameters` (относительный путь → SHA-256), `model_basis`
+(`model_path`, `model_version`, `sha256`, либо `null`). Все прочитанные
+таблицы проверяются по манифесту до расчёта. Экспорт сценариев использует
+зафиксированную модель; для прежних комплектов нужна доказанная связь
+через сохранённый fingerprint/происхождение, иначе экспорт отклоняется.
+Все байты происхождения, включая Git commit/dirty, входят в идентичность
+новой версии портовой модели. Опубликованные версии не перезаписываются.
+Новое поколение готовится и проверяется отдельно; рабочий `latest.json`
+переключается атомарно после проверки всего комплекта. Для таблиц указатель
+`data/current.json` выбирает полный снимок `.generations/data/<version>/`;
+до его появления читается прежний `data/processed`. Старый снимок сохраняется,
+читатели разрешают указатель перед проверкой и использованием таблиц.
+Подготовку/публикацию сериализует блокировка процесса на рабочую копию;
+второй писатель получает понятный отказ, после завершения или аварии первого
+можно повторить команду. До переключения указателя сбой сохраняет прежнее
+поколение. При прерывании совместимой корневой копии после переключения
+доступно целиком проверенное новое поколение; повтор восстанавливает копию.
+
+Обычная загрузка проверяет целостность сохранённого сентябрьского результата,
+не разбирая закрытые факты. Новое `raw_validation_scope`:
+`reextracted_port_cells_and_saved_september_integrity`; прежнее значение с
+`redacted_september_check` продолжает читаться. Сохранённый redacted JSON
+сохраняется побайтово. Если его нет, результат обозначается «не выполнялась:
+закрытые факты не открывались», `sources=[]`, `blind_check_run=false`.
+
+Ценовое исследование выпускает `passport.json` со `schema_version`,
+`result_version`, `generated_at`, `source` (организация, indicator_id, URL,
+заявленная дата снимка, `publication_dates:null`, `vintage_verified:false`),
+`input` (путь/SHA-256), `protocol` (путь/SHA-256, окна, методы, горизонты,
+правило выбора), `implementation` (путь/SHA-256, версия Python),
+`unit:percentage_points`, `evaluation_status:retrospective_available_vintage`,
+`limitations`, `outputs` (имя/SHA-256). Это ретроспективная проверка доступной
+версии, без доказанной имитации исторической доступности публикаций.
+Сохранённые результаты не перезаписываются.
+
+CSV годового прогноза сохраняет прежние столбцы и добавляет `target_id`,
+`target_name`, `route_id`, `scope`, `period_granularity`, `horizon_years`,
+`forecast_origin`, `training_start`, `training_end`, `generated_at`,
+`selected_model`, `observations`, `sources_json`, `warnings_json`,
+`provenance_json`, `metrics_json`. Метаданные и числа берутся из одного
+`ForecastResponse`; единица — тонны за год, исходные наблюдения не экспортируются.
+Ограничения использования источников сохраняются в происхождении/предупреждениях.
+
+Ограничения ассистента настраиваются сервером: `BB_LLM_ACCESS_TOKEN`
+(Bearer, необязателен для локального режима), `BB_LLM_ALLOW_REMOTE`
+(по умолчанию false), `BB_LLM_REQUESTS_PER_MINUTE` (общий лимит процесса),
+`BB_LLM_MAX_CONCURRENT_REQUESTS`, `BB_LLM_MAX_TOKENS`,
+`BB_LLM_MAX_ANSWER_CHARS`, `BB_LLM_SUMMARY_CACHE_TTL_SECONDS`.
+Удалённый доступ разрешается только при включённом allow_remote и токене.
+В production отсутствие токена закрывает LLM также для loopback/reverse proxy;
+остальные маршруты продолжают работать.
+Отказ доступа — 403 `LLM_ACCESS_DENIED`; лимит частоты/параллельности —
+429 `LLM_RATE_LIMITED`/`LLM_BUSY` с `Retry-After`. Ограничения применяются
+к обоим LLM-эндпоинтам, включая кэш. Кэш сводок ограничен по размеру и TTL,
+ключ включает полный проверенный прогнозный контекст, версии и предупреждения.
+Ответ провайдера сверх лимита символов отклоняется как `LLM_UPSTREAM_ERROR`.
+Лимиты и кэш локальны одному процессу; при нескольких процессах лимиты суммируются.
 
 ## Изолированная синтетическая генерация v1 (12.11.2026)
 
@@ -732,3 +808,80 @@ stack trace и секреты.
 Собственная панель ассистента запрашивает сводку при открытии; загрузка ответа
 сама по себе не считается готовностью данных. После ошибки/таймаута доступен
 повтор без перезагрузки страницы. Сообщения при проверке не отправляются.
+# Сравнение решений v0.19 (12.11.2026)
+
+Новые пути используют действующий `BB_API_PREFIX`. Старые API сохраняются.
+`POST /comparisons` создаёт неизменяемый серверный снимок, `GET /comparisons/{id}`
+проверяет его актуальность. Кэш одного процесса: максимум 128 снимков, TTL 30 минут;
+перезапуск/истечение — 410 `COMPARISON_EXPIRED`, смена модели/данных — 409
+`COMPARISON_CONTEXT_CHANGED`. Это не постоянное хранилище; несколько workers не поддержаны.
+
+Вход: `region=kaliningrad`, `mode=sea`, `direction=inbound|outbound`, `period` (год
+2015–2030), `load_basis=direct|forecast`, `demand_tonnes` (только direct),
+`forecast_multiplier` (только forecast, 0–100), `demand_source`, `capacity_tonnes`,
+`capacity_source`, `actions: {reserve_ferry: {delta_tonnes, source}, additional_ferry:
+{delta_tonnes, source}}`, `include_directions=false`, `grid_size=9` (3–15).
+Все массы конечны, неотрицательны, не больше 1e12 т; итоговая возможность также.
+Пустое допущение отклоняется, ноль вводится явно. Текст источника 1–2000 символов.
+Forecast доступен только для 2024–2030 и явно означает масштаб сценарной нагрузки,
+не наблюдённый спрос. Базовая возможность всегда вводится пользователем.
+
+Снимок: `comparison_id`, `created_at`, `expires_at`, `status=scenario`, `unit=tonnes`,
+`context` (region, target_id, route, scope, mode, direction, period, granularity,
+model_version/data_version/forecast_origin либо null; model_sha256 и forecast_sha256
+для идентичности связанного контекста при наличии), `inputs` (нормализованный вход),
+`demand_tonnes`, `variants`, `thresholds`, `passports`, `sources`, `warnings`,
+`forecast_basis` (проверенный ForecastResponse либо null), `direction_profile` (либо null).
+Вариант: `id=baseline|reserve_ferry|additional_ferry`, `label`, `name`,
+`demand_tonnes`, `capacity_tonnes`, `capacity_delta_tonnes`, `scenario_capacity_tonnes`,
+`scenario_shortfall_tonnes`, `shortfall_reduction_tonnes`,
+`scenario_spare_capacity_tonnes`, `coverage_share` (null при нулевой нагрузке),
+`assumption_source`, `status=scenario`. А+Б не вычисляется.
+`thresholds`: `required_delta_tonnes`, `grid` с `demand_values`, `delta_values`,
+`shortfalls` (строки delta × столбцы demand), `boundary_delta_tonnes` по оси demand.
+Сетка ограничена 225 ячейками, массы и граница вычисляются сервером.
+`grid_size` задаёт желаемое число узлов; обязательные выбранные допущения
+сохраняются даже для меньшей сетки (не более 15 узлов по оси).
+
+`passports` — словарь по разрешимому пути (`demand_tonnes`,
+`variants.0.scenario_shortfall_tonnes`, `thresholds.required_delta_tonnes` и т.д.).
+Паспорт: title, definition, value, unit, period, geography, direction, result_type,
+source, source_url (разрешённый публичный URL либо null), original_unit,
+conversion, formula, data_version, model_version, forecast_origin, calculated_at,
+machine_validation, human_review (null при отсутствии), limitations.
+SHA-256 подтверждает идентичность файла, не корректность метода или ручную приёмку.
+
+`GET /direction-profile?end_year=2030` возвращает `status=ready|partial|not_connected`,
+`unit=tonnes`, `rows` (period, result_type, inbound, outbound, total,
+inbound_share, outbound_share, difference_tonnes, inbound_outbound_ratio),
+`model_version`, `data_version`, `forecast_origin`, `sources`, `warnings`, `passports`.
+История только из проверенного артефакта 2015–2023, прогноз 2024–2030 из 2023.
+Неизвестное направление и производные с отсутствующими входами — null; доли и
+отношение при нулевом знаменателе — null. Интервалы направлений не суммируются.
+`GET /coverage` возвращает фактические стадии доступности трёх территорий,
+отделяя регистрацию источника от локального оригинала и подключённого результата.
+
+`GET /comparisons/{id}/export?format=html|csv|json` экспортирует этот снимок
+без повторного расчёта. HTML содержит кнопку «Печать / Сохранить в PDF»,
+экранирует текст; CSV UTF-8 BOM экранирует формулы в текстовых ячейках.
+Исторические исходные ряды и исходные архивы в экспорт не включаются.
+
+`POST /comparisons/{id}/ask {question}` возвращает comparison_id, status,
+answer, evidence_refs. `POST /comparisons/{id}/analysis` запускает ровно три
+отдельных вызова: comparison_analyst, evidence_analyst, assumption_reviewer;
+синтез выполняет обычная серверная логика, дополнительных LLM-вызовов нет.
+Ответ: comparison_id, status (`complete|partial|unavailable`), agents (agent_id,
+status, findings, evidence_refs, assumptions, limitations, questions_for_user),
+sections (title, items), warnings. evidence_refs разрешаются только в поля снимка
+или `source:<source_id>`. Числа в выводах приводятся сервером по ссылкам;
+валидный JSON не означает истинность свободного текста.
+Не более 2 одновременных вызовов, общий таймаут 60 секунд, контекст 24000 символов,
+ответ специалиста 12000 символов, до 8 пунктов в списке, никаких рекурсий/повторов.
+Повторный одновременный разбор снимка — 409 `ANALYSIS_BUSY`; отмена через
+`POST /comparisons/{id}/analysis/cancel` или disconnect отменяет дочерние задачи.
+Глобальные правила доступа и лимиты LLM сохраняются; без провайдера — 503
+`LLM_NOT_CONFIGURED`. Частичный результат не выдаётся за полный разбор.
+
+Все представления относятся к одному comparison_id. Редактирование формы отменяет
+запросы и отключает экспорт/AI до нового расчёта; запоздавшие ответы отбрасываются.
+Результаты браузера сервером не принимаются. Реальные модели и blind не изменяются.

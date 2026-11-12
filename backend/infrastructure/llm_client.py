@@ -23,21 +23,26 @@ class OpenAILLMClient:
         model: str,
         timeout_seconds: float,
         http_client: httpx.AsyncClient | None = None,
+        max_tokens: int = 800,
+        max_answer_chars: int = 12000,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._http_client = http_client
+        self._max_tokens = max_tokens
+        self._max_answer_chars = max_answer_chars
 
-    async def ask(self, context: str, question: str) -> str:
+    async def ask(self, context: str, question: str, *, system_prompt: str | None = None) -> str:
         if not self._base_url or not self._api_key.get_secret_value() or not self._model:
             raise LLMClientError("LLM-провайдер не настроен")
 
         payload = {
             "model": self._model,
+            "max_tokens": self._max_tokens,
             "messages": [
-                {"role": "system", "content": self._system_prompt},
+                {"role": "system", "content": system_prompt or self._system_prompt},
                 {"role": "user", "content": f"Данные:\n{context}\n\nВопрос: {question}"},
             ],
         }
@@ -76,6 +81,8 @@ class OpenAILLMClient:
 
             if not isinstance(content, str) or not content.strip():
                 raise LLMClientError("Пустой ответ модели")
+            if len(content) > self._max_answer_chars:
+                raise LLMClientError("Ответ модели превысил допустимую длину")
 
             return content.strip()
 

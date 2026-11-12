@@ -11,7 +11,8 @@ from pathlib import Path
 from statistics import mean, median
 
 from ml.experiment_io import fingerprint, finish_manifest
-from ml.predict import forecast
+from ml.predict import forecast, load_artifact
+from ml.publication import publish_directory, staged_generation
 from ml.research_inputs import (
     ACTION_FIELDS,
     action_scenarios,
@@ -23,6 +24,8 @@ from ml.research_inputs import (
     research_rows,
     reserve_gain_by_year,
     wagon_share,
+    FACTS_PATH,
+    REPAIRS_PATH,
 )
 from pipeline.common import ROOT, digest, write_csv
 
@@ -512,7 +515,9 @@ def report_text(
 
 def run_hypotheses(root: Path = ROOT) -> dict:
     root = Path(root).resolve()
-    processed = root / "data/processed"
+    from pipeline.generation import resolve_data_root
+    data_root = resolve_data_root(root)
+    processed = data_root / "data/processed"
     manifest_path = processed / "build_manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(
@@ -520,7 +525,32 @@ def run_hypotheses(root: Path = ROOT) -> dict:
         )
     import json
 
-    data_version = json.loads(manifest_path.read_text(encoding="utf-8"))["data_version"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data_version = manifest["data_version"]
+    table_names = ("supplemental_freight.csv", "weather_daily.csv", "candidate_observations.csv",
+                   "port_cabotage_monthly.csv")
+    table_identity = {}
+    for name in table_names:
+        relative = "data/processed/" + name
+        actual = digest((data_root / relative).read_bytes())
+        if manifest.get("outputs", {}).get(relative) != actual:
+            raise ValueError("Таблица исследования не соответствует манифесту SHA-256: " + relative)
+        table_identity[relative] = actual
+    parameter_identity = {p.relative_to(Path(__file__).parents[1]).as_posix(): digest(p.read_bytes())
+                          for p in (FLEET_PATH, FACTS_PATH, REPAIRS_PATH)}
+    model_basis = None
+    if (root / "models/latest.json").is_file():
+        pointer = json.loads((root / "models/latest.json").read_text(encoding="utf-8"))
+        model_path = (root / pointer["model_path"]).resolve()
+        if (not model_path.is_relative_to(root / "models") or digest(model_path.read_bytes()) != pointer["sha256"]):
+            raise ValueError("Модель сценария не соответствует указателю SHA-256")
+        model = load_artifact(root, model_path=model_path)
+        if model["model_version"] != pointer["model_version"]:
+            raise ValueError("Версия модели сценария не соответствует указателю")
+        model_basis = {"model_path": pointer["model_path"], "model_version": model["model_version"],
+                       "sha256": pointer["sha256"]}
+    input_identity = {"build_manifest_sha256": digest(manifest_path.read_bytes()),
+                      "tables": table_identity, "parameters": parameter_identity, "model_basis": model_basis}
     fleet = load_fleet()
     panel = build_panel(
         _read(processed / "supplemental_freight.csv"), fleet, weather_by_month(_read(processed / "weather_daily.csv"))
@@ -555,7 +585,7 @@ def run_hypotheses(root: Path = ROOT) -> dict:
     position = next(i for i, r in enumerate(outcome) if r["hypothesis_id"] == "phased_investment")
     outcome[position:position] = extra
     scenarios = []
-    if (root / "models/latest.json").is_file():
+    if model_basis is not None:
         totals: dict[int, float] = defaultdict(float)
         for row in candidate:
             totals[int(row["period"])] += float(row["value_tonnes"])
@@ -564,7 +594,7 @@ def run_hypotheses(root: Path = ROOT) -> dict:
         )
         directions = ("inbound", "outbound")
         scenarios = action_scenarios(
-            {d: forecast(d, 2030, root=root) for d in directions},
+            {d: forecast(d, 2030, root=root, model_path=root / model_basis["model_path"]) for d in directions},
             candidate,
             facts,
             reserve_gain,
@@ -575,6 +605,7 @@ def run_hypotheses(root: Path = ROOT) -> dict:
         "bb-hyp-",
         {
             "data_version": data_version,
+            "input_identity": input_identity,
             "line_research": line_research,
             "fleet": fleet,
             "panel": panel,
@@ -583,23 +614,31 @@ def run_hypotheses(root: Path = ROOT) -> dict:
             "repairs": [{**r, "start": str(r["start"]), "end": str(r["end"])} for r in repairs],
             "scenarios": scenarios,
         },
-        [Path(__file__), Path(__file__).with_name("research_inputs.py")],
+        [Path(__file__).with_name(name) for name in
+         ("hypotheses.py", "research_inputs.py", "predict.py", "models.py", "publication.py")],
     )
-    output = root / OUTPUT_DIR / version
-    output.mkdir(parents=True, exist_ok=True)
-    write_csv(output / "ferry_month_panel.csv", PANEL_FIELDS, panel)
-    write_csv(output / "fleet_regression.csv", REGRESSION_FIELDS, regression)
-    write_csv(output / "hypothesis_results.csv", RESULT_FIELDS, outcome)
-    if scenarios:
-        write_csv(output / "action_scenarios.csv", ACTION_FIELDS, scenarios)
-    (output / "hypotheses-report.md").write_text(
-        report_text(version, data_version, panel, regression, outcome, scenarios, facts), encoding="utf-8"
-    )
-    finish_manifest(
-        output, {"report_version": version, "data_version": data_version, "status": "indirect_estimates_only",
-                 "line_research": line_research, "fingerprint": inputs}
-    )
-    return {"output_dir": output, "version": version, "months": len(panel)}
+    if (digest(manifest_path.read_bytes()) != input_identity["build_manifest_sha256"] or
+            any(digest((data_root / p).read_bytes()) != sha for p, sha in table_identity.items()) or
+            any(digest((Path(__file__).parents[1] / p).read_bytes()) != sha
+                for p, sha in parameter_identity.items()) or
+            (model_basis is not None and digest((root / model_basis["model_path"]).read_bytes()) != model_basis["sha256"])):
+        raise ValueError("Входы изменились во время расчёта исследования")
+    final_output = root / OUTPUT_DIR / version
+    with staged_generation(root) as output:
+        write_csv(output / "ferry_month_panel.csv", PANEL_FIELDS, panel)
+        write_csv(output / "fleet_regression.csv", REGRESSION_FIELDS, regression)
+        write_csv(output / "hypothesis_results.csv", RESULT_FIELDS, outcome)
+        if scenarios:
+            write_csv(output / "action_scenarios.csv", ACTION_FIELDS, scenarios)
+        (output / "hypotheses-report.md").write_text(
+            report_text(version, data_version, panel, regression, outcome, scenarios, facts), encoding="utf-8"
+        )
+        finish_manifest(
+            output, {"report_version": version, "data_version": data_version, "status": "indirect_estimates_only",
+                     "line_research": line_research, "fingerprint": inputs, "input_identity": input_identity}
+        )
+        publish_directory(output, final_output)
+    return {"output_dir": final_output, "version": version, "months": len(panel)}
 
 
 def main() -> None:

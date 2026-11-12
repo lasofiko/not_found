@@ -8,10 +8,13 @@ from pipeline.common import ROOT, digest, load_registry
 from pipeline.verify import verify
 
 
-def package(root: Path, output: Path) -> Path:
-    errors = verify(root)
+def package(root: Path, output: Path, *, data_root: Path | None = None) -> Path:
+    from pipeline.generation import resolve_data_root
+    data_root = data_root or resolve_data_root(root)
+    errors = verify(root, data_root=data_root)
     if errors:
         raise ValueError("\n".join(errors))
+    root = data_root
     manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
     paths = set(manifest["outputs"]) | set(manifest["code"])
     paths.update(manifest.get("review_inputs", {}))
@@ -72,9 +75,11 @@ def main() -> int:
     args = parser.parse_args()
     root = args.root.resolve()
     try:
-        version = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))["data_version"]
+        from pipeline.generation import resolve_data_root
+        data_root = resolve_data_root(root)
+        version = json.loads((data_root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))["data_version"]
         output = args.output or root / "reports/generated" / f"data-handoff-{version}.zip"
-        print(f"Архив передачи: {package(root, output)}")
+        print(f"Архив передачи: {package(root, output, data_root=data_root)}")
     except (OSError, ValueError, KeyError) as error:
         print(f"Архив не создан: {error}")
         return 1

@@ -67,6 +67,9 @@ def verify_supplemental(root: Path, manifest: dict) -> list[str]:
             return list(csv.DictReader(stream))
     for filename in ("regional_indicators.csv", "supplemental_freight.csv", "port_cabotage_cumulative.csv"):
         for row in read(filename):
+            # Целостность закрытых строк проверена SHA-256; числа не раскрываем.
+            if filename == "port_cabotage_cumulative.csv" and row["period"] >= "2026":
+                continue
             raw, val = row["original_value"], row["value"]
             special = filename.startswith("regional") and raw in {"CD", "ND", "-77777777", "-99999999"}
             absent = special or raw in {"", "-", "–", "—"}
@@ -86,12 +89,14 @@ def verify_supplemental(root: Path, manifest: dict) -> list[str]:
     regional = read("regional_indicators.csv")
     if regional and [r for r in regional if r["indicator_code"] in {"Y477110061", "Y477110290", "Y477110293"}] != read("regional_freight.csv"):
         errors.append("Грузовой региональный срез отличается от общего набора")
-    cumulatives = read("port_cabotage_cumulative.csv")
+    cumulatives = [r for r in read("port_cabotage_cumulative.csv") if r["period"] < "2026"]
     port_key = lambda r: tuple(r[f] for f in ("source_id", "period", "port", "operator", "cargo_group", "measurement_scope", "unit"))
     lookup = defaultdict(list)
     for row in cumulatives:
         lookup[port_key(row)].append(row)
     for row in read("port_cabotage_monthly.csv"):
+        if row["period"] >= "2026":
+            continue
         current = lookup[port_key(row)]
         month = int(row["period"][5:])
         previous = lookup[port_key({**row, "source_id": row["previous_source_id"], "period": f"{row['period'][:4]}-{month - 1:02d}"})] if month > 1 else []
@@ -104,8 +109,23 @@ def verify_supplemental(root: Path, manifest: dict) -> list[str]:
     return errors
 
 
-def verify(root: Path) -> list[str]:
+def verify(root: Path, *, data_root: Path | None = None) -> list[str]:
     try:
+        from pipeline.generation import mirror_errors, resolve_data_root
+        workspace = Path(root).resolve()
+        root = Path(data_root).resolve() if data_root is not None else resolve_data_root(workspace)
+        if root != workspace and not root.is_relative_to(workspace / ".generations/data"):
+            raise ValueError("Проверяемое поколение выходит за каталог рабочего проекта")
+        if root != workspace:
+            errors = mirror_errors(workspace, root)
+            saved = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
+            for relative, expected in {**saved.get("code", {}), **saved.get("handoff_assets", {}),
+                                       **saved.get("review_inputs", {})}.items():
+                path = workspace / relative
+                if not path.is_file() or digest(path.read_bytes()) != expected:
+                    errors.append("Не совпадает SHA-256 текущего кода или документа: " + relative)
+            if errors:
+                return errors
         artifacts = load_registry(root)
         manifest = json.loads((root / "data/processed/build_manifest.json").read_text(encoding="utf-8"))
         if manifest.get("build_scope") == "provided_processed":
