@@ -11,6 +11,10 @@ from pipeline.common import digest, write_csv, write_json
 from pipeline.research_addendum import HEADER, parse_schedule
 from pipeline.research_addendum import build as build_addendum
 from pipeline.research_addendum import verify as verify_addendum
+from pipeline.research_notes import FIELDS as NOTE_FIELDS
+from pipeline.research_notes import build as build_notes
+from pipeline.research_notes import extract as extract_notes
+from pipeline.research_notes import verify as verify_notes
 from pipeline.research_package import OUTPUT, TABLES, build, read_csv_output, verify
 
 
@@ -155,3 +159,51 @@ def test_addendum_registers_alias_and_leaves_base_unchanged(tmp_path):
     write_json(out / "manifest.json", manifest)
     with pytest.raises(ValueError, match="Расписание не воспроизводится"):
         verify_addendum(tmp_path)
+
+
+def note_document(rows):
+    stream = io.StringIO()
+    writer = csv.DictWriter(stream, fieldnames=NOTE_FIELDS)
+    writer.writeheader()
+    writer.writerows(rows)
+    return "# Предоставленные сведения\n\n```csv\n" + stream.getvalue().rstrip() + "\n```\n"
+
+
+def test_notes_preserve_scope_and_identity_and_detect_tampering(tmp_path):
+    base = build(tmp_path, bundle(tmp_path))
+    before = (base / "manifest.json").read_bytes()
+    common = dict.fromkeys(NOTE_FIELDS, "")
+    common.update(direction="both", verification="opened_source", unit="т", value="87000",
+                  source_url="https://t.me/oboronlogistika/446")
+    rows = [{**common, "fact_id": "C029", "topic": "A_monthly", "period": "2025-09"},
+            {**common, "fact_id": "A068", "topic": "A_monthly", "period": "2025-04"}]
+    path = tmp_path / "new-notes.md"
+    path.write_text(note_document(rows))
+    out = build_notes(tmp_path, path)
+    fields, actual = read_csv_output((out / "research_facts.csv").read_bytes())
+    assert actual[0]["fact_id"] == "C029" and actual[0]["record_id"].endswith(":C029")
+    assert actual[0]["scope_status"] == "single_route_varying_fleet"
+    assert actual[1]["scope_status"] == "multi_route_aggregate"
+    assert all(r["review_status"] == "pending" and r["evidence_status"] == "provided_unverified" for r in actual)
+    _, comparisons = read_csv_output((out / "monthly_comparison.csv").read_bytes())
+    assert comparisons[0]["comparison_status"] == "matching_value_scope_review"
+    assert comparisons[1]["comparison_status"] == "previous_value_missing"
+    assert (base / "manifest.json").read_bytes() == before
+    assert verify_notes(tmp_path) == out
+    assert build_notes(tmp_path, path) == out
+    actual[0]["evidence_status"] = "observed"
+    write_csv(out / "research_facts.csv", fields, actual)
+    manifest = json.loads((out / "manifest.json").read_text())
+    manifest["outputs"]["research_facts.csv"] = digest((out / "research_facts.csv").read_bytes())
+    write_json(out / "manifest.json", manifest)
+    with pytest.raises(ValueError, match="не воспроизводятся"):
+        verify_notes(tmp_path)
+
+
+def test_notes_reject_duplicate_ids_and_multiple_csv_blocks():
+    row = dict.fromkeys(NOTE_FIELDS, "")
+    row["fact_id"] = "A001"
+    with pytest.raises(ValueError, match="повтор fact_id"):
+        extract_notes(note_document([row, row]).encode())
+    with pytest.raises(ValueError, match="один блок CSV"):
+        extract_notes((note_document([row]) * 2).encode())

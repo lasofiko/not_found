@@ -1,5 +1,11 @@
 # Данные
 
+Markdown с новыми выписками A–C: `python -m pipeline.research_notes --document FILE.md`,
+затем `python -m pipeline.research_notes --verify`. Оригинал — `raw/research_notes/`,
+таблицы и сопоставление — `processed/research_notes/`; указатель — `latest.json`.
+Все строки сохраняются с отдельными ID, охватом и статусом provided_unverified.
+[Результаты и ограничения](../docs/research-ac-update.md).
+
 Все текущие локальные данные и дополнения одним комплектом:
 `python -m pipeline.current_snapshot`. Выход — в `../reports/generated/current-data-2026-11-12-<version>/`;
 ZIP не превышают 400 000 000 байт и распаковываются в один каталог.
