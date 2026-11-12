@@ -12,6 +12,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from ml.synthetic_evaluation import evaluate
 from pipeline.synthetic_audit import Snapshot, save_csv, save_json, sha
+from pipeline.synthetic_context import collect_context
 from pipeline.synthetic_data import GENERAL_WARNINGS, advance, load_series, stats
 from pipeline.synthetic_methods import METHODS, quantile, simulate
 
@@ -56,6 +57,11 @@ CODE_FILES = [
     "backend/tests/test_synthetic_api.py",
     "scripts/synthetic_smoke.py",
     "docs/synthetic-row.schema.json",
+    "pipeline/synthetic_context.py",
+    "pipeline/research_notes.py",
+    "pipeline/research_package.py",
+    "pipeline/synthetic_delivery.py",
+    "tests/test_synthetic_delivery.py",
 ]
 DEFAULT_SCENARIOS = {"reference": 1.0, "scale_down": 0.9, "scale_up": 1.1}
 
@@ -149,6 +155,19 @@ def render_report(catalog, metrics, decisions, audit):
             f"{item['period_start']}–"
             f"{item['period_end']} | {item['observations']} | {','.join(item['source_statuses'])} |"
         )
+    context = catalog.get("research_context", {})
+    if context.get("present"):
+        lines += [
+            "",
+            "### Дополнение к повторному запуску",
+            "",
+            f"В комплект включено дополнение `{context['version']}`: {context['rows']} записей. " + context["reason"],
+            "",
+            "Оригинал, таблицы, исходное сравнение и расхождения сохранены в context/. "
+            "Дополнение не продлевает входящие/исходящие ряды и не участвует в настройке методов. "
+            "При неизменных входных значениях и seed числовые траектории повторяют прежний запуск; "
+            "версия комплекта и происхождение обновляются.",
+        ]
     lines += [
         "",
         "## Б. Что сгенерировано",
@@ -283,6 +302,7 @@ def build(snapshot_dir, audit_dir, output_root, realizations=200, seed=42):
     if destination.exists():
         raise ValueError("Версия уже существует; проверьте её или задайте другой output-root")
     series, lineage, assessments = load_series(snapshot)
+    context, context_files = collect_context(snapshot)
     all_rows, real_rows, backtests, metrics, diagnostics = [], [], [], [], []
     for item in series:
         sid = item["series_id"]
@@ -380,6 +400,7 @@ def build(snapshot_dir, audit_dir, output_root, realizations=200, seed=42):
         "data_version": version,
         "generator_version": generator_version,
         "snapshot_version": snapshot.manifest["data_version"],
+        "research_context": context,
         "warnings": GENERAL_WARNINGS,
         "scenarios": config["scenarios"],
         "rows": len(all_rows),
@@ -399,6 +420,11 @@ def build(snapshot_dir, audit_dir, output_root, realizations=200, seed=42):
         save_json(stage / "provenance.json", lineage)
         save_json(stage / "recommendations.json", decisions)
         save_json(stage / "assessments.json", assessments)
+        save_json(stage / "context-assessment.json", context)
+        for name, payload in context_files.items():
+            target = stage / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
         for path in audit_dir.iterdir():
             if path.is_file():
                 shutil.copyfile(path, stage / ("audit-" + path.name))
