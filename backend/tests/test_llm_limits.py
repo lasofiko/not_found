@@ -136,6 +136,14 @@ def test_offline_guard_rejects_real_network():
         client.get("http://127.0.0.1:1/test-only")
 
 
+def test_development_accepts_docker_gateway_without_a_token(forecast_context):
+    app, gateway = app_with_provider(forecast_context)
+    app.state.settings.environment = "development"
+    client = TestClient(app, client=("172.24.0.1", 5000))
+    assert client.get("/api/v1/llm/summary").status_code == 200
+    assert gateway.ask.call_count == 1
+
+
 def test_production_requires_token_even_behind_loopback_proxy(forecast_context):
     app, gateway = app_with_provider(forecast_context)
     app.state.settings.environment = "production"

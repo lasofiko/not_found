@@ -28,7 +28,8 @@ class LLMPolicy:
         settings = self.settings
         host = request.client.host if request.client else ""
         try:
-            local = ipaddress.ip_address(host).is_loopback
+            address = ipaddress.ip_address(host)
+            local = address.is_loopback or (settings.environment == "development" and address.is_private)
         except ValueError:
             local = settings.environment == "test" and host == "testclient"
         token = settings.llm_access_token.get_secret_value()
